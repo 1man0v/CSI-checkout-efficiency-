@@ -13,11 +13,8 @@
     <aside class="sidebar" id="sidebar"></aside>
     <main class="main">
       <div class="topbar">
-        <div class="breadcrumbs" id="topbar-breadcrumbs"></div>
-        <div class="topbar-tools">
-          <span class="mono" id="topbar-scope" style="font-size:12px;color:var(--color-text-muted)"></span>
-          <div class="lang-toggle"><button id="lang-ru" onclick="setLang('ru')">RU</button><button id="lang-en" onclick="setLang('en')">EN</button></div>
-        </div>
+        <div class="topbar-context" id="topbar-context"></div>
+        <div class="topbar-tools" id="topbar-tools-right"></div>
       </div>
       <div class="content" id="content"></div>
     </main>
@@ -26,6 +23,5 @@
   <script src="i18n.js"></script>
   <script src="api.js"></script>
   <script src="app.js"></script>
-  <script>document.getElementById("lang-" + currentLang).classList.add("active");</script>
 </body>
 </html>

@@ -11,6 +11,7 @@ const tasksApi = require("./routes/tasks");
 const settingsApi = require("./routes/settings");
 const causesApi = require("./routes/causes");
 const misc = require("./routes/misc");
+const analytics = require("./routes/analytics");
 
 const PORT = process.env.PORT || 4000;
 const FRONTEND_DIR = path.join(__dirname, "..", "frontend");
@@ -113,6 +114,16 @@ async function handleApi(req, res, pathname, query) {
     if (req.method === "GET" && pathname === "/api/diagnostics") return sendJson(res, 200, misc.diagnostics(db, query.search || ""));
     if (req.method === "GET" && pathname === "/api/usage") return sendJson(res, 200, misc.usageStats(db));
     if (req.method === "GET" && pathname === "/api/advisor") return sendJson(res, 200, misc.askAdvisor(query.q || ""));
+
+    // --- analytics: тренды по времени, региональная сводка, история кассы ---
+    if (req.method === "GET" && pathname === "/api/analytics/daily") return sendJson(res, 200, analytics.dailySeries(db, query));
+    if (req.method === "GET" && pathname === "/api/analytics/regions") return sendJson(res, 200, analytics.regionsSummary(db, query));
+    if (req.method === "GET" && pathname === "/api/analytics/hourly") return sendJson(res, 200, analytics.hourlySeries(db, query));
+    m = pathname.match(/^\/api\/registers\/([^/]+)\/history$/);
+    if (req.method === "GET" && m) {
+      const result = analytics.registerHistory(db, m[1]);
+      return result ? sendJson(res, 200, result) : sendJson(res, 404, { error: "Касса не найдена" });
+    }
 
     return sendJson(res, 404, { error: "Не найдено" });
   } catch (e) {

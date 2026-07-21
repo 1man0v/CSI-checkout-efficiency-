@@ -295,3 +295,82 @@ td.mono, th.mono { font-family: var(--font-mono); }
 @media (max-width: 900px) {
   .kanban { grid-template-columns: 1fr; }
 }
+
+/* ================= Добавлено по замечаниям к прототипу (2026-07-22) ================= */
+
+/* ---------- Топбар: контекст слева, часы/период/язык справа ---------- */
+.topbar-context { display: flex; align-items: center; gap: var(--space-2); font-size: 13px; }
+.topbar-context .crumb { color: var(--color-text-muted); }
+.topbar-context .crumb.current { color: var(--color-text); font-weight: 600; }
+.topbar-clock { font-family: var(--font-mono); font-size: 13px; color: var(--color-text); white-space: nowrap; }
+.lang-select { font-size: 12px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 4px 8px; background: var(--color-surface); }
+
+/* ---------- Селектор периода (календарь) ---------- */
+.period-picker { position: relative; }
+.period-btn { display: flex; align-items: center; gap: 6px; }
+.period-panel {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 40;
+  background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg);
+  box-shadow: 0 12px 32px oklch(0% 0 0 / 0.15); padding: var(--space-4); width: 340px;
+}
+.period-presets { display: flex; flex-direction: column; gap: 2px; margin-bottom: var(--space-4); border-bottom: 1px solid var(--color-border); padding-bottom: var(--space-3); }
+.period-presets button { all: unset; cursor: pointer; padding: 6px 8px; border-radius: var(--radius-sm); font-size: 13px; }
+.period-presets button:hover, .period-presets button.active { background: var(--color-bg); }
+.period-calendar-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--space-2); font-size: 13px; font-weight: 600; }
+.period-calendar-header button { all: unset; cursor: pointer; padding: 2px 8px; color: var(--color-text-muted); }
+.period-calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.period-calendar-grid .dow { font-size: 10px; color: var(--color-text-muted); text-align: center; padding: 2px 0; }
+.period-day { position: relative; text-align: center; padding: 6px 0; font-size: 12px; border-radius: 4px; cursor: pointer; font-family: var(--font-mono); }
+.period-day:hover { background: var(--color-bg); }
+.period-day.in-range { background: var(--color-blue-bg); }
+.period-day.range-edge { background: var(--color-accent); color: var(--color-accent-contrast); }
+.period-day.empty { cursor: default; }
+.period-day .dot { position: absolute; bottom: 2px; left: 50%; transform: translateX(-50%); width: 4px; height: 4px; border-radius: 50%; }
+.period-day-tooltip {
+  position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); margin-bottom: 4px;
+  background: var(--color-text); color: white; font-size: 11px; padding: 6px 8px; border-radius: var(--radius-sm);
+  white-space: nowrap; z-index: 50; pointer-events: none; font-family: var(--font-sans);
+}
+.period-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: var(--space-3); }
+
+/* ---------- Info tooltip (p95 и т.п.) ---------- */
+.info-tip { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; border-radius: 50%; background: var(--color-border); color: var(--color-text-muted); font-size: 10px; cursor: help; margin-left: 4px; }
+.info-tip:hover .info-tip-bubble { display: block; }
+.info-tip-bubble { display: none; position: absolute; bottom: 130%; left: 50%; transform: translateX(-50%); width: 220px; background: var(--color-text); color: white; font-size: 11px; line-height: 1.4; padding: 8px 10px; border-radius: var(--radius-sm); z-index: 30; font-weight: 400; }
+
+/* ---------- KPI-карточка кликабельная ---------- */
+.kpi-card.clickable { cursor: pointer; transition: transform 0.1s; }
+.kpi-card.clickable:hover { transform: translateY(-2px); box-shadow: 0 4px 12px oklch(0% 0 0 / 0.08); }
+.kpi-trend { font-size: 11px; margin-left: 6px; }
+.kpi-trend.trend-up { color: var(--color-green); }
+.kpi-trend.trend-down { color: var(--color-red); }
+
+/* ---------- Быстрые фильтры ---------- */
+.quick-filters { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: var(--space-3); }
+.quick-filters button { all: unset; cursor: pointer; font-size: 12px; border: 1px solid var(--color-border); border-radius: 999px; padding: 5px 12px; color: var(--color-text-muted); }
+.quick-filters button:hover { border-color: var(--color-accent); color: var(--color-accent); }
+.quick-filters button.active { background: var(--color-accent); color: var(--color-accent-contrast); border-color: var(--color-accent); }
+
+/* ---------- Регион rollup таблица ---------- */
+.region-row { cursor: pointer; }
+.region-row:hover td { background: var(--color-bg); }
+
+/* ---------- SVG-график с трендом/персентилем ---------- */
+.chart-svg-wrap { width: 100%; overflow-x: auto; }
+.chart-legend-row { display: flex; gap: var(--space-4); font-size: 12px; color: var(--color-text-muted); margin-top: var(--space-2); }
+.chart-legend-row .legend-item { display: flex; align-items: center; gap: 4px; }
+.chart-legend-row .swatch-line { width: 14px; height: 2px; display: inline-block; }
+
+/* ---------- Sidebar: глобальный демо-контрол состояния (низ) ---------- */
+.sidebar-dev-control { border-top: 1px solid oklch(40% 0.01 260); padding-top: var(--space-3); margin-top: var(--space-2); }
+.sidebar-dev-control label { color: var(--color-sidebar-text-muted); font-size: 10px; text-transform: uppercase; }
+.sidebar-dev-control select { width: 100%; font-size: 11px; margin-top: 4px; background: var(--color-sidebar-active); color: var(--color-sidebar-text); border: none; border-radius: var(--radius-sm); padding: 4px 6px; }
+
+/* ---------- Задачи: элапсед-таймер, форма ---------- */
+.task-elapsed { font-size: 11px; color: var(--color-text-muted); }
+.quick-time-btns { display: flex; gap: 6px; margin-top: 6px; }
+.quick-time-btns button { all: unset; cursor: pointer; font-size: 11px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 3px 8px; color: var(--color-text-muted); }
+.quick-time-btns button:hover { border-color: var(--color-accent); color: var(--color-accent); }
+.form-help { font-size: 11px; color: var(--color-text-muted); margin-top: 2px; }
+.modal-wide { width: 560px; }
+.field-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }

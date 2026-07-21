@@ -28,5 +28,9 @@ const api = {
   escalateTask: (id) => apiRequest("POST", `/api/tasks/${id}/escalate`),
   getDiagnostics: (search) => apiRequest("GET", "/api/diagnostics?" + new URLSearchParams(search ? { search } : {})),
   getUsage: () => apiRequest("GET", "/api/usage"),
-  askAdvisor: (q) => apiRequest("GET", "/api/advisor?" + new URLSearchParams({ q }))
+  askAdvisor: (q) => apiRequest("GET", "/api/advisor?" + new URLSearchParams({ q })),
+  getDailySeries: (params) => apiRequest("GET", "/api/analytics/daily?" + new URLSearchParams(params || {})),
+  getRegionsSummary: (params) => apiRequest("GET", "/api/analytics/regions?" + new URLSearchParams(params || {})),
+  getHourlySeries: (params) => apiRequest("GET", "/api/analytics/hourly?" + new URLSearchParams(params || {})),
+  getRegisterHistory: (id) => apiRequest("GET", `/api/registers/${id}/history`)
 };
