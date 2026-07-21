@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Set — Настройки (отдельное приложение)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="settings-shell">
+    <div class="settings-app-badge">⚙ Отдельное приложение настроек — не часть навигации основного продукта (SCR-08)</div>
+    <h1>Настройка нормативов и порогов</h1>
+    <p style="color:var(--color-text-muted)">Экран SCR-08. Выносится в отдельное приложение по решению Product Manager (2026-07-21) — конфигурация не зашита в логику аналитических дашбордов.</p>
+
+    <div class="field" style="max-width:280px;margin:20px 0">
+      <label>Роль (демо)</label>
+      <select id="role-select" onchange="renderSettings()">
+        <option value="od">Операционный директор — вся сеть</option>
+        <option value="rd">Региональный директор — регион «Москва-Восток»</option>
+      </select>
+    </div>
+
+    <div id="settings-body"></div>
+
+    <p><a href="index.html">← Вернуться в основной продукт</a></p>
+  </div>
+
+  <script src="i18n.js"></script>
+  <script src="data.js"></script>
+  <script>
+    function renderSettings() {
+      const role = document.getElementById("role-select").value;
+      const s = getSettings();
+      const isRd = role === "rd";
+      document.getElementById("settings-body").innerHTML = `
+        ${isRd ? `<div class="scope-banner mvp2">РД может менять нормативы своего региона, но не может менять нормативы сети целиком. Снижение регионального норматива ниже сетевого требует согласования ОД (подтверждено Product Manager, 2026-07-20).</div>` : ""}
+        <div class="settings-group">
+          <h3>Нормативы доступности и производительности (p95 / медиана)</h3>
+          <div class="settings-row"><div><div class="row-label">Доступность КСО, %</div><div class="row-sub">норматив &gt; значения, авто-медиана если не задано</div></div>
+            <input type="number" id="s-availability" value="${s.availabilityNorm}" min="0" max="100"><div></div>
+            <button class="btn btn-sm" onclick="saveField('availabilityNorm', 's-availability', ${isRd})">${t("action.save")}</button></div>
+          <div class="settings-row"><div><div class="row-label">Доля чеков КСО, %</div><div class="row-sub">норматив &gt; значения</div></div>
+            <input type="number" id="s-scoshare" value="${s.scoShareNorm}" min="0" max="100"><div></div>
+            <button class="btn btn-sm" onclick="saveField('scoShareNorm', 's-scoshare', ${isRd})">${t("action.save")}</button></div>
+          <div class="settings-row"><div><div class="row-label">p95 POS, сек</div></div>
+            <input type="number" id="s-p95pos" value="${s.performanceP95.POS}" min="1"><div></div>
+            <button class="btn btn-sm" onclick="savePerf('POS','s-p95pos')">${t("action.save")}</button></div>
+          <div class="settings-row"><div><div class="row-label">p95 SCO, сек</div></div>
+            <input type="number" id="s-p95sco" value="${s.performanceP95.SCO}" min="1"><div></div>
+            <button class="btn btn-sm" onclick="savePerf('SCO','s-p95sco')">${t("action.save")}</button></div>
+        </div>
+        <div class="settings-group">
+          <h3>Пороги утилизации POS/SCO (настраиваемый параметр — не фиксированное правило)</h3>
+          <p style="color:var(--color-text-muted);font-size:12px;margin-top:-8px">Значения по умолчанию взяты как иллюстративный пример из кейса «Магазин №404» (requirements/07-scenarios/business-scenarios.md) — не бизнес-правило, зашитое в продукт.</p>
+          <div class="settings-row"><div><div class="row-label">Норматив нагрузки SCO, чек/нед</div><div class="row-sub">ниже — «недогружены»</div></div>
+            <input type="number" id="s-sco-week" value="${s.utilization.scoWeeklyNorm}" min="0"><div></div>
+            <button class="btn btn-sm" onclick="saveUtil('scoWeeklyNorm','s-sco-week')">${t("action.save")}</button></div>
+          <div class="settings-row"><div><div class="row-label">Норматив нагрузки POS, чек/нед</div></div>
+            <input type="number" id="s-pos-week" value="${s.utilization.posWeeklyNorm}" min="0"><div></div>
+            <button class="btn btn-sm" onclick="saveUtil('posWeeklyNorm','s-pos-week')">${t("action.save")}</button></div>
+          <div class="settings-row"><div><div class="row-label">Верхний порог POS (перегруз), чек/нед</div></div>
+            <input type="number" id="s-pos-upper" value="${s.utilization.posUpperOverload}" min="0"><div></div>
+            <button class="btn btn-sm" onclick="saveUtil('posUpperOverload','s-pos-upper')">${t("action.save")}</button></div>
+          <div class="settings-row"><div><div class="row-label">Нижний порог POS (избыток персонала), чек/нед</div></div>
+            <input type="number" id="s-pos-lower" value="${s.utilization.posLowerExcessStaff}" min="0"><div></div>
+            <button class="btn btn-sm" onclick="saveUtil('posLowerExcessStaff','s-pos-lower')">${t("action.save")}</button></div>
+        </div>
+        <div id="settings-toast" style="font-size:13px;color:var(--color-green);min-height:20px"></div>
+      `;
+    }
+    function flash(msg, isError) {
+      const box = document.getElementById("settings-toast");
+      box.style.color = isError ? "var(--color-red)" : "var(--color-green)";
+      box.textContent = msg;
+      setTimeout(() => { box.textContent = ""; }, 2500);
+    }
+    function saveField(key, inputId, isRd) {
+      const val = Number(document.getElementById(inputId).value);
+      const s = getSettings();
+      if (isRd && val < s[key]) { flash("Запрос на согласование отправлен Операционному директору (значение ниже сетевого норматива).", false); return; }
+      s[key] = val; saveSettings(s); flash(t("toast.saved"));
+    }
+    function savePerf(type, inputId) {
+      const val = Number(document.getElementById(inputId).value);
+      if (!val || val <= 0) { flash("Некорректное значение — укажите положительное число секунд.", true); return; }
+      const s = getSettings(); s.performanceP95[type] = val; saveSettings(s); flash(t("toast.saved"));
+    }
+    function saveUtil(key, inputId) {
+      const val = Number(document.getElementById(inputId).value);
+      if (!val || val < 0) { flash("Некорректное значение — укажите неотрицательное число.", true); return; }
+      const s = getSettings(); s.utilization[key] = val; saveSettings(s); flash(t("toast.saved"));
+    }
+    renderSettings();
+  </script>
+</body>
+</html>

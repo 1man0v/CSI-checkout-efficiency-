@@ -1,0 +1,131 @@
+{
+  "productName": "Set — Эффективность зоны расчета",
+  "sourceProductModel": "ai-artifacts/01-product.model.json",
+  "sourceScreenModel": "ai-artifacts/02-screen.model.json",
+  "prototypePath": "visual-prototype/",
+  "techStack": "Статический HTML/CSS/vanilla JS (без сборки, без фреймворка), клиентский hash-роутер, данные — встроенные JS-объекты (data.js), состояние — in-memory + localStorage (роль, язык, настройки нормативов). Без backend/API/БД/реальных интеграций.",
+  "figmaUsage": {
+    "used": false,
+    "reason": "Figma не запрашивалась пользователем и не была предоставлена (ни файл, ни ссылка) — согласно инструкции этапа, Figma используется только по явному запросу.",
+    "visualBasis": "Визуальный язык основан на черновой дизайн-системе «Set · Эффективность», описанной текстом в requirements/04-quality/quality-requirements.md (IBM Plex Sans/Mono, холодная нейтральная палитра, индиго-акцент, статусные цвета, отступы на основе 4px, плоские карточки без теней, темная боковая панель) — не исходники Figma."
+  },
+  "globalUiElements": {
+    "navigationShell": {
+      "implemented": true,
+      "type": "persistent-sidebar",
+      "directAccessScreens": ["SCR-01", "SCR-04", "SCR-05", "SCR-06", "SCR-07", "SCR-09"],
+      "note": "SCR-09 добавлен в сайдбар как прямой пункт меню (с бейджем MVP2), так как он также указан как достижимый «из общей навигации» в 02-screen.model.json. Секция «Другие роли (демо)» дает доступ к SCR-11/12/13, не входящим в roleSwitcher."
+    },
+    "roleSwitcher": {
+      "implemented": true,
+      "roles": ["operations_director", "regional_director", "store_director"],
+      "component": "RoleToggle",
+      "behavior": "ОД — вся сеть; РД — фиксированный демо-регион «Москва-Восток»; ДМ — фиксированный демо-магазин «№404 «Городской»» с автоматическим переходом на карточку магазина и скрытием SCR-01/SCR-02 из меню."
+    },
+    "localization": {
+      "implemented": "частично",
+      "keys_covered": "навигация, роли, общие действия (фильтр/экспорт/сохранить/отмена и т.д.), состояния экрана, тосты",
+      "keys_not_covered": "заголовки KPI-карточек, названия столбцов таблиц, тексты сценарных ответов ИИ-консультанта — остаются на русском без ключей",
+      "file": "visual-prototype/i18n.js"
+    },
+    "stateDemoSelector": {
+      "implemented": true,
+      "description": "На каждом экране — выпадающий список «Состояние (демо)» для переключения между loading/empty/success/validationError/serverError, где они определены в 02-screen.model.json"
+    }
+  },
+  "screens": [
+    {
+      "screenId": "SCR-01", "route": "#/network", "files": ["index.html", "app.js"],
+      "statesImplemented": ["loading", "empty", "success", "serverError"],
+      "interactions": ["Drilldown в SCR-02/SCR-03", "Export (тост)", "переключение роли/периода влияет на данные"],
+      "testData": "10 магазинов в data.js (STORES), 4 из них — аутсайдеры трех категорий (технический/бизнес-фактор/утилизация)"
+    },
+    {
+      "screenId": "SCR-02", "route": "#/outliers", "files": ["index.html", "app.js"],
+      "statesImplemented": ["loading", "empty", "success", "serverError"],
+      "interactions": ["Filter (регион, категория причины)", "Sort (доступность, доля SCO)", "Drilldown в SCR-03"],
+      "testData": "Подмножество STORES с outlier=true"
+    },
+    {
+      "screenId": "SCR-03", "route": "#/store/:id", "files": ["index.html", "app.js"],
+      "statesImplemented": ["loading", "empty", "success", "validationError", "serverError"],
+      "interactions": ["Drilldown в SCR-04..07/SCR-09", "Create (модальная форма задачи, MVP2, с валидацией обязательного поля)", "Complete (в списке задач по магазину)"],
+      "testData": "Магазин №404 воспроизводит документированный кейс (requirements/07-scenarios/business-scenarios.md): SCO №4 с утилизацией 2% и пояснением; магазин №420 демонстрирует офлайн-кассу, считающуюся доступной"
+    },
+    {
+      "screenId": "SCR-04", "route": "#/performance", "files": ["index.html", "app.js"],
+      "statesImplemented": ["loading", "empty", "success", "serverError"],
+      "interactions": ["Filter (по типу кассы через агрегацию роли/сайта)", "Export (тост)", "Drilldown (через таблицу проблемных касс — переход неявный, без ссылки на конкретный магазин в MVP демо)"],
+      "testData": "Регистры всех магазинов, p95 по типу кассы, почасовые CSS-бары со случайной вариацией вокруг норматива"
+    },
+    {
+      "screenId": "SCR-05", "route": "#/potential", "files": ["index.html", "app.js"],
+      "statesImplemented": ["loading", "empty", "success", "serverError"],
+      "interactions": ["Filter (масштаб роли)", "Export (тост)"],
+      "testData": "Агрегированная доля SCO по выбранному масштабу, почасовое распределение POS/SCO (CSS-бары)"
+    },
+    {
+      "screenId": "SCR-06", "route": "#/availability", "files": ["index.html", "app.js"],
+      "statesImplemented": ["loading", "empty", "success", "serverError"],
+      "interactions": ["Filter", "Export (тост)", "Drilldown в TOP аутсайдеров", "CreateITTicket (модальное окно)"],
+      "testData": "TECHNICAL_CAUSES_HOURS (8 причин, включая «Нет связи (офлайн)» с пояснением, что она не всегда равна недоступности), TOP-5 аутсайдеров по доступности",
+      "note": "Объединяет бывший SCR-10 — общий отчет технических причин для всех ролей, как подтверждено Product Manager 2026-07-21"
+    },
+    {
+      "screenId": "SCR-07", "route": "#/utilization", "files": ["index.html", "app.js"],
+      "statesImplemented": ["loading", "empty", "success", "serverError"],
+      "interactions": ["Filter (масштаб роли)", "Export (тост)"],
+      "testData": "TOP-5 аутсайдеров по утилизации из всех регистров"
+    },
+    {
+      "screenId": "SCR-08", "route": "settings.html (отдельный файл/приложение)", "files": ["settings.html"],
+      "statesImplemented": ["success", "validationError"],
+      "interactions": ["Edit (поля нормативов и порогов утилизации)", "Approve-flow (демо согласования РД → ОД при занижении норматива ниже сетевого)"],
+      "testData": "DEFAULT_SETTINGS в data.js, персистентность — localStorage (ключ set_settings), общий для index.html и settings.html",
+      "note": "Реализован как отдельный HTML-файл вне навигационной оболочки основного продукта, доступен только по прямой ссылке из сайдбара (⚙ Настройки) — буквально отдельное приложение, как подтверждено Product Manager 2026-07-21"
+    },
+    {
+      "screenId": "SCR-09", "route": "#/tasks", "files": ["index.html", "app.js"],
+      "statesImplemented": ["loading", "empty", "success", "validationError", "serverError"],
+      "interactions": ["Create (модальная форма с валидацией)", "Complete (кнопка, циклический переход статуса)", "Escalate (кнопка, простановка цепочки РД → ОД)", "Drag-and-drop карточек между тремя колонками канбана (HTML5 DnD)"],
+      "testData": "TASKS в data.js — 4 предзаполненные задачи, включая одну уже эскалированную",
+      "note": "Экран явно маркирован бейджем MVP2 и текстовым баннером о статусе"
+    },
+    {
+      "screenId": "SCR-11", "route": "#/diagnostics", "files": ["index.html", "app.js"],
+      "statesImplemented": ["loading", "empty", "success", "serverError"],
+      "interactions": ["Search (по номеру кассы/магазина)"],
+      "testData": "Все регистры сети с добавленными демо-полями выручки — иллюстрирует подтвержденный доступ к коммерческим метрикам"
+    },
+    {
+      "screenId": "SCR-12", "route": "#/product-analytics", "files": ["index.html", "app.js"],
+      "statesImplemented": ["loading", "empty", "success", "serverError"],
+      "interactions": ["Просмотр статистики использования отчетов (статичные демо-данные, фильтр не реализован интерактивно)"],
+      "testData": "Статичный список «отчет → количество открытий»"
+    },
+    {
+      "screenId": "SCR-13", "route": "#/advisor", "files": ["index.html", "app.js"],
+      "statesImplemented": ["loading", "empty", "success", "serverError"],
+      "interactions": ["Чат: кнопки-подсказки с примерами вопросов, свободный ввод вопроса, Send"],
+      "testData": "ADVISOR_SCRIPTED_ANSWER — сценарный ответ для точного примера из requirements/02-system/ai-advisor-concept.md (раздел 11); для любого другого вопроса — заглушка с подсказкой",
+      "note": "Включено в прототип по решению Product Manager (2026-07-21); статус в общей продуктовой дорожной карте остается открытым вопросом"
+    }
+  ],
+  "browserVerification": {
+    "performed": true,
+    "tool": "claude-in-chrome (реальный Chrome, локальный HTTP-сервер на файлах прототипа)",
+    "checked": [
+      "Навигация между всеми основными экранами и drill-down",
+      "Переключение ролей (ОД/РД/ДМ) с корректным редиректом ДМ на свой магазин",
+      "Kanban: обновление статуса кнопкой и через HTML5 drag-and-drop",
+      "Модальные окна создания задачи и заявки в ИТ, включая validationError при пустом обязательном поле",
+      "Чат ИИ-консультанта со сценарным ответом на пример вопроса",
+      "Отдельное приложение настроек (settings.html), включая демо-сценарий согласования РД → ОД",
+      "Экран доступности с объединенными техническими причинами и офлайн-кассой, считающейся доступной",
+      "Переключатель состояний экрана (в т.ч. serverError)",
+      "Отсутствие ошибок в консоли браузера на всех проверенных экранах"
+    ],
+    "bugFound": "Боковая панель растягивалась по высоте вместе с контентом, из-за чего вторичная навигация (Другие роли, Настройки) уходила за пределы экрана на длинных страницах",
+    "bugFixed": "Добавлены position: sticky; top: 0; height: 100vh; overflow-y: auto; align-self: flex-start у .sidebar — проверено повторно после исправления"
+  }
+}

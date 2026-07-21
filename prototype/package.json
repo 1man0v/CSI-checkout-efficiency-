@@ -1,0 +1,12 @@
+{
+  "name": "set-checkout-efficiency-prototype",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Прототип (frontend+backend+API+БД) для Set — Эффективность зоны расчета. Не production-система.",
+  "engines": { "node": ">=22.5.0" },
+  "scripts": {
+    "seed": "node backend/seed.js",
+    "start": "node backend/server.js"
+  },
+  "dependencies": {}
+}

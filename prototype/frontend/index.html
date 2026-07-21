@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Set — Эффективность зоны расчета (прототип)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar"></aside>
+    <main class="main">
+      <div class="topbar">
+        <div class="breadcrumbs" id="topbar-breadcrumbs"></div>
+        <div class="topbar-tools">
+          <span class="mono" id="topbar-scope" style="font-size:12px;color:var(--color-text-muted)"></span>
+          <div class="lang-toggle"><button id="lang-ru" onclick="setLang('ru')">RU</button><button id="lang-en" onclick="setLang('en')">EN</button></div>
+        </div>
+      </div>
+      <div class="content" id="content"></div>
+    </main>
+  </div>
+
+  <script src="i18n.js"></script>
+  <script src="api.js"></script>
+  <script src="app.js"></script>
+  <script>document.getElementById("lang-" + currentLang).classList.add("active");</script>
+</body>
+</html>

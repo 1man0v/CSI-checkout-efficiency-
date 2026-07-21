@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Set — Настройки (отдельное приложение)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="settings-shell">
+    <div class="settings-app-badge">⚙ Отдельное приложение настроек — не часть навигации основного продукта (SCR-08)</div>
+    <h1>Настройка нормативов и порогов</h1>
+    <p style="color:var(--color-text-muted)">Экран SCR-08. Данные хранятся в SQLite (таблицы settings_network / settings_regional / settings_approval_requests) через REST API — не localStorage.</p>
+
+    <div class="field" style="max-width:280px;margin:20px 0">
+      <label>Роль (демо)</label>
+      <select id="role-select" onchange="renderSettings()">
+        <option value="od">Операционный директор — вся сеть</option>
+        <option value="rd">Региональный директор — регион «Москва-Восток»</option>
+      </select>
+    </div>
+
+    <div id="settings-body">Загрузка...</div>
+
+    <div class="settings-group" id="approvals-group" style="display:none">
+      <h3>Очередь согласования (роль ОД)</h3>
+      <div id="approvals-body"></div>
+    </div>
+
+    <p><a href="index.html">← Вернуться в основной продукт</a></p>
+  </div>
+
+  <script src="i18n.js"></script>
+  <script src="api.js"></script>
+  <script>
+    const REGION = "Москва-Восток";
+    const FIELD_LABELS = {
+      availability_norm: ["Доступность КСО, %", "норматив > значения, авто-медиана если не задано"],
+      sco_share_norm: ["Доля чеков КСО, %", "норматив > значения"],
+      p95_pos: ["p95 POS, сек", ""], p95_sco: ["p95 SCO, сек", ""],
+      sco_weekly_norm: ["Норматив нагрузки SCO, чек/нед", "ниже — «недогружены»"],
+      pos_weekly_norm: ["Норматив нагрузки POS, чек/нед", ""],
+      pos_upper_overload: ["Верхний порог POS (перегруз), чек/нед", ""],
+      pos_lower_excess_staff: ["Нижний порог POS (избыток персонала), чек/нед", ""]
+    };
+
+    async function renderSettings() {
+      const role = document.getElementById("role-select").value;
+      const region = role === "rd" ? REGION : null;
+      const data = await api.getSettings(region);
+      const isRd = role === "rd";
+      const eff = data.effective;
+      const rows = ["availability_norm", "sco_share_norm", "p95_pos", "p95_sco", "sco_weekly_norm", "pos_weekly_norm", "pos_upper_overload", "pos_lower_excess_staff"];
+      document.getElementById("settings-body").innerHTML = `
+        ${isRd ? `<div class="scope-banner mvp2">РД может менять доступность/долю SCO своего региона. Снижение ниже сетевого норматива требует согласования ОД.</div>` : ""}
+        <div class="settings-group">
+          ${rows.map(f => `<div class="settings-row"><div><div class="row-label">${FIELD_LABELS[f][0]}</div><div class="row-sub">${FIELD_LABELS[f][1]}</div></div>
+            <input type="number" id="s-${f}" value="${eff[f]}" min="0">
+            <div></div>
+            <button class="btn btn-sm" onclick="saveField('${f}', ${isRd})">${t("action.save")}</button></div>`).join("")}
+        </div>
+        <div id="settings-toast" style="font-size:13px;min-height:20px"></div>`;
+      document.getElementById("approvals-group").style.display = role === "od" ? "block" : "none";
+      if (role === "od") await renderApprovals();
+    }
+
+    async function renderApprovals() {
+      const approvals = await api.getApprovals();
+      const box = document.getElementById("approvals-body");
+      if (!approvals.length) { box.innerHTML = `<p style="color:var(--color-text-muted)">Нет ожидающих запросов.</p>`; return; }
+      box.innerHTML = approvals.map(a => `<div class="settings-row"><div><div class="row-label">${a.region}: ${FIELD_LABELS[a.field] ? FIELD_LABELS[a.field][0] : a.field}</div>
+        <div class="row-sub">запрошено ${a.requested_value}, сетевой норматив ${a.current_network_value}</div></div><div></div><div></div>
+        <div style="display:flex;gap:6px"><button class="btn btn-sm" onclick="resolveApproval(${a.id}, 'approved')">Согласовать</button>
+        <button class="btn btn-sm" onclick="resolveApproval(${a.id}, 'rejected')">Отклонить</button></div></div>`).join("");
+    }
+    async function resolveApproval(id, decision) {
+      await api.resolveApproval(id, decision);
+      flash(decision === "approved" ? "Согласовано" : "Отклонено", false);
+      renderApprovals();
+    }
+
+    function flash(msg, isError) {
+      const box = document.getElementById("settings-toast");
+      box.style.color = isError ? "var(--color-red)" : "var(--color-green)";
+      box.textContent = msg;
+      setTimeout(() => { box.textContent = ""; }, 3000);
+    }
+    async function saveField(field, isRd) {
+      const value = Number(document.getElementById("s-" + field).value);
+      const role = document.getElementById("role-select").value;
+      try {
+        const result = await api.updateSettings({ role, region: isRd ? REGION : null, field, value });
+        if (result && result.approvalRequired) flash(result.message, false);
+        else flash(t("toast.saved"), false);
+      } catch (e) { flash(e.message, true); }
+    }
+    renderSettings();
+  </script>
+</body>
+</html>
