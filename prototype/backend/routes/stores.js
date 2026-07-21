@@ -1,5 +1,6 @@
 const { classifyOutlier, isRegisterAvailable } = require("../rules");
 const { getEffectiveSettings } = require("./settings");
+const { topCauseByStore } = require("./analytics");
 
 // GET /api/stores?scope=network|region|store&region=..&storeId=..
 function listStores(db, query) {
@@ -11,7 +12,8 @@ function listStores(db, query) {
     scoped = rows.filter(s => s.id === query.storeId);
   }
   const settings = getEffectiveSettings(db, query.region || null);
-  return scoped.map(s => ({ ...s, ...classifyOutlier(s, settings) }));
+  const topCauses = topCauseByStore(db);
+  return scoped.map(s => ({ ...s, ...classifyOutlier(s, settings), top_cause: topCauses.get(s.id)?.cause || null }));
 }
 
 // GET /api/stores/:id

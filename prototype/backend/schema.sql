@@ -2,6 +2,12 @@
 -- Упрощена относительно продуктовой архитектуры (Kafka/POSDWH/ClickHouse) — см. ai-artifacts/07-prototype-report.md,
 -- раздел «Упрощения». Хранит агрегированные показатели напрямую, а не сырые события телеметрии.
 
+-- Региональные директора — для сводки регионов на дашборде ОД (контроль РД).
+CREATE TABLE IF NOT EXISTS regions (
+  region TEXT PRIMARY KEY,
+  regional_director TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS stores (
   id TEXT PRIMARY KEY,
   number TEXT NOT NULL,
@@ -106,11 +112,16 @@ CREATE TABLE IF NOT EXISTS usage_stats (
 
 -- Суточные агрегаты по магазину — для календаря выбора периода (превью доступности/доли SCO по дате
 -- без ожидания подгрузки, пункт 3 замечаний) и для расчета тренда регион/сеть (пункт 8).
+-- pos_availability_pct/sco_checks/pos_checks добавлены для drill-down графиков по POS-метрикам
+-- и нагрузке (замечание про недостающие графики по "Доступность POS"/"Нагрузка SCO"/"Нагрузка POS").
 CREATE TABLE IF NOT EXISTS daily_summary (
   store_id TEXT NOT NULL REFERENCES stores(id),
   date TEXT NOT NULL,
   availability_pct REAL NOT NULL,
   sco_share_pct REAL NOT NULL,
+  pos_availability_pct REAL NOT NULL DEFAULT 100,
+  sco_checks INTEGER NOT NULL DEFAULT 0,
+  pos_checks INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (store_id, date)
 );
 
@@ -120,6 +131,9 @@ CREATE TABLE IF NOT EXISTS hourly_metrics (
   ts TEXT NOT NULL,
   availability_pct REAL NOT NULL,
   sco_share_pct REAL NOT NULL,
+  pos_availability_pct REAL NOT NULL DEFAULT 100,
+  sco_checks INTEGER NOT NULL DEFAULT 0,
+  pos_checks INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (store_id, ts)
 );
 

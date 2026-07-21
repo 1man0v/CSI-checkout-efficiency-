@@ -18,6 +18,7 @@ DROP TABLE IF EXISTS settings_network;
 DROP TABLE IF EXISTS it_tickets;
 DROP TABLE IF EXISTS technical_causes;
 DROP TABLE IF EXISTS registers;
+DROP TABLE IF EXISTS regions;
 DROP TABLE IF EXISTS stores;
 `;
 
@@ -108,7 +109,15 @@ function seed() {
     for (const r of s.registers) insertRegister.run(r.id, s.id, r.type, r.status, r.p95_seconds, r.checks_week, r.utilization_pct, r.offline_but_available ? 1 : 0, r.note || null);
   }
 
-  // --- Технические причины простоя: SCO (как раньше) + POS (новое, пункт 7 замечаний) ---
+  // --- Региональные директора (для сводки регионов ОД — контроль РД, замечание №5) ---
+  const insertRegion = db.prepare("INSERT INTO regions (region, regional_director) VALUES (?, ?)");
+  insertRegion.run("Москва-Запад", "Быкова Анна Сергеевна");
+  insertRegion.run("Москва-Восток", "Гришин Павел Олегович");
+  insertRegion.run("Санкт-Петербург", "Данилова Ирина Владимировна");
+
+  // --- Технические причины простоя SCO (как раньше). POS-причины см. ниже — только "технические
+  // сбои", без операционных/кадровых причин (замечание №4: "нет такого понятия как технический
+  // перерыв кассира", интересует именно доступность/нагрузка/технические сбои POS). ---
   const causes = [
     ["Нет бумаги", 18, "SCO", null],
     ["Ошибка банка", 26, "SCO", null],
@@ -118,10 +127,9 @@ function seed() {
     ["Ошибка принтера", 3, "SCO", null],
     ["Сервисный режим", 9, "SCO", null],
     ["Нет связи (офлайн)", 11, "SCO", "Не учитывается как недоступность при штатной работе кассы"],
-    ["Кассир отсутствует на рабочем месте", 12, "POS", null],
     ["Ошибка ККТ", 8, "POS", null],
     ["Сбой терминала эквайринга", 7, "POS", null],
-    ["Технический перерыв кассира", 5, "POS", null]
+    ["Ошибка сканера POS", 5, "POS", null]
   ];
   const insertCause = db.prepare("INSERT INTO technical_causes (cause, hours, applies_to, note) VALUES (?, ?, ?, ?)");
   for (const c of causes) insertCause.run(...c);
@@ -156,8 +164,16 @@ function seed() {
   const insertUsage = db.prepare("INSERT INTO usage_stats (report, opens) VALUES (?, ?)");
   for (const u of usage) insertUsage.run(...u);
 
-  // --- Суточные агрегаты за 30 дней (для календаря периода и тренда региона/сети — пункты 3, 8) ---
-  const insertDaily = db.prepare("INSERT INTO daily_summary (store_id, date, availability_pct, sco_share_pct) VALUES (?, ?, ?, ?)");
+  // Дневная (Вс..Сб) и часовая (0..23) кривые нагрузки — для распределения недельных итогов
+  // (sco_load_week/pos_load_week) по дням/часам в графиках "Нагрузка SCO"/"Нагрузка POS"/"Чеков POS".
+  const WEEKDAY_MULT = [0.85, 0.95, 1.0, 1.0, 1.05, 1.2, 1.15]; // Вс, Пн, Вт, Ср, Чт, Пт, Сб
+  const HOUR_WEIGHTS = [0.5, 0.3, 0.2, 0.2, 0.3, 0.6, 1.2, 2.0, 2.8, 3.2, 3.5, 3.8, 4.2, 3.6, 3.2, 3.4, 3.8, 4.5, 5.0, 4.6, 3.8, 2.8, 1.8, 1.0];
+  const HOUR_WEIGHT_SUM = HOUR_WEIGHTS.reduce((a, b) => a + b, 0);
+
+  // --- Суточные агрегаты за 30 дней (для календаря периода и тренда региона/сети — пункты 3, 8;
+  // pos_availability_pct/sco_checks/pos_checks — для drill-down графиков POS-метрик и нагрузки) ---
+  const insertDaily = db.prepare(`INSERT INTO daily_summary
+    (store_id, date, availability_pct, sco_share_pct, pos_availability_pct, sco_checks, pos_checks) VALUES (?, ?, ?, ?, ?, ?, ?)`);
   // trendOffset растет с "d" (сколько дней назад) — при d=0 (сегодня) значение равно базовому
   // (актуальному) показателю магазина; "up" означает, что в прошлом было хуже (рост к сегодня),
   // "down" — что в прошлом было лучше (спад к сегодня).
@@ -168,14 +184,23 @@ function seed() {
       const noise = (rndFloat() - 0.5) * 4;
       const availability = clamp(s.availability_pct - trendOffset + noise, 40, 100);
       const scoShare = clamp(s.sco_share_pct - trendOffset * 0.4 + (rndFloat() - 0.5) * 3, 5, 60);
-      insertDaily.run(s.id, dateDaysAgo(d), Math.round(availability * 10) / 10, Math.round(scoShare * 10) / 10);
+      const posAvailability = clamp(98 - (s.trend === "down" ? trendOffset * 0.15 : 0) + (rndFloat() - 0.5) * 3, 85, 100);
+      const date = dateDaysAgo(d);
+      const dow = new Date(date + "T00:00:00Z").getUTCDay();
+      const wMult = WEEKDAY_MULT[dow] * (0.9 + rndFloat() * 0.2);
+      const scoChecks = Math.round((s.sco_load_week / 7) * wMult);
+      const posChecks = Math.round((s.pos_load_week / 7) * wMult);
+      insertDaily.run(s.id, date, Math.round(availability * 10) / 10, Math.round(scoShare * 10) / 10,
+        Math.round(posAvailability * 10) / 10, scoChecks, posChecks);
     }
   }
 
   // --- Почасовые точки за 7 дней (для графика при клике на KPI-плашку — пункт 11) ---
   // Учитывает дневной паттерн с проседанием доступности в обеденный пик (12:00-14:00),
-  // как в примере ИИ-консультанта (requirements/02-system/ai-advisor-concept.md).
-  const insertHourly = db.prepare("INSERT INTO hourly_metrics (store_id, ts, availability_pct, sco_share_pct) VALUES (?, ?, ?, ?)");
+  // как в примере ИИ-консультанта (requirements/02-system/ai-advisor-concept.md), и часовую кривую
+  // нагрузки (HOUR_WEIGHTS) для распределения дневного количества чеков по часам.
+  const insertHourly = db.prepare(`INSERT INTO hourly_metrics
+    (store_id, ts, availability_pct, sco_share_pct, pos_availability_pct, sco_checks, pos_checks) VALUES (?, ?, ?, ?, ?, ?, ?)`);
   for (const s of stores) {
     for (let h = 24 * 7 - 1; h >= 0; h--) {
       const ts = new Date(Date.now() - h * 3600 * 1000);
@@ -183,7 +208,12 @@ function seed() {
       const lunchDip = (hourOfDay >= 12 && hourOfDay <= 14) ? (s.trend === "down" ? 18 : 8) : 0;
       const availability = clamp(s.availability_pct - lunchDip + (rndFloat() - 0.5) * 6, 30, 100);
       const scoShare = clamp(s.sco_share_pct + (rndFloat() - 0.5) * 5, 3, 60);
-      insertHourly.run(s.id, ts.toISOString(), Math.round(availability * 10) / 10, Math.round(scoShare * 10) / 10);
+      const posAvailability = clamp(98 - lunchDip * 0.2 + (rndFloat() - 0.5) * 4, 80, 100);
+      const hourFrac = HOUR_WEIGHTS[hourOfDay] / HOUR_WEIGHT_SUM;
+      const scoChecks = Math.round((s.sco_load_week / 7) * hourFrac * (0.85 + rndFloat() * 0.3));
+      const posChecks = Math.round((s.pos_load_week / 7) * hourFrac * (0.85 + rndFloat() * 0.3));
+      insertHourly.run(s.id, ts.toISOString(), Math.round(availability * 10) / 10, Math.round(scoShare * 10) / 10,
+        Math.round(posAvailability * 10) / 10, scoChecks, posChecks);
     }
   }
 

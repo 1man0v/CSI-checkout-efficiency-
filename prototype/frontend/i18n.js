@@ -1,20 +1,14 @@
-/* Таблица локализации (ключ → перевод). Подтверждено Product Manager: RU/EN по умолчанию, другие языки —
-   по запросу; перевод только через таблицу ключей, эталон — английский. Пункт 1 замечаний к прототипу:
-   переключатель должен быть выпадающим списком (языков может быть десятки), не парой кнопок — и должен
-   реально переключать содержимое экранов, а не только заголовки. Полный перевод заведен для ru/en;
-   остальные языки в списке показывают структуру, готовую к расширению, с graceful fallback на английский. */
+/* Таблица локализации (ключ → перевод). Пункт 2 замечаний к прототипу: на начальном этапе — только
+   ru/en (остальные языки будут добавлены по запросу); перевод только через таблицу ключей, каждый
+   видимый текст интерфейса должен иметь ключ на обоих языках. Исключение (по явному указанию
+   пользователя): названия регионов и ФИО — это данные БД, не UI-текст, не переводятся.
+   Не переведен сценарный контент ИИ-консультанта (SCR-13, статус MVP2/roadmap open) — его текст
+   жестко сопоставляется backend'ом (misc.js, SCRIPTED_ANSWERS) по точной строке вопроса;
+   перевод сломал бы сопоставление, поэтому консультант сознательно оставлен на русском. */
 
 const LANGUAGES = [
   { code: "ru", label: "Русский" },
-  { code: "en", label: "English" },
-  { code: "de", label: "Deutsch" },
-  { code: "fr", label: "Français" },
-  { code: "es", label: "Español" },
-  { code: "pt", label: "Português" },
-  { code: "tr", label: "Türkçe" },
-  { code: "zh", label: "中文" },
-  { code: "ar", label: "العربية" },
-  { code: "kk", label: "Қазақша" }
+  { code: "en", label: "English" }
 ];
 
 const I18N = {
@@ -22,7 +16,8 @@ const I18N = {
     "brand.name": "Set", "brand.subtitle": "Эффективность зоны расчета",
     "role.od": "Операционный директор", "role.rd": "Региональный директор", "role.dm": "Директор магазина",
     "role.od.scope": "Вся сеть", "role.rd.scope": "Свой регион", "role.dm.scope": "Свой магазин",
-    "scope.network": "Сеть", "scope.region": "Регион", "scope.store": "Магазин",
+    "role.label": "Роль (демо)",
+    "scope.network": "Сеть", "scope.region": "Регион", "scope.store": "Магазин", "scope.of": "из",
     "nav.network": "Дашборд сети", "nav.outliers": "Аутсайдеры", "nav.performance": "Производительность",
     "nav.potential": "Потенциал SCO", "nav.availability": "Доступность", "nav.utilization": "Утилизация",
     "nav.tasks": "Задачи", "nav.other_views": "Другие роли (демо)", "nav.diagnostics": "Диагностика",
@@ -33,19 +28,85 @@ const I18N = {
     "action.apply": "Применить", "action.worst_first": "Худшие сначала", "action.best_first": "Лучшие сначала",
     "action.low_availability": "Низкая доступность", "action.low_sco": "Низкая доля SCO", "action.high_potential": "Большой потенциал перетока",
     "action.realtime": "Реальное время", "action.last24h": "Последние 24 часа", "action.last7d": "Последние 7 дней", "action.last30d": "Последние 30 дней",
+    "action.show_all": "Показать все →", "action.reset": "Сбросить",
     "period.label": "Период", "period.custom": "Произвольный период",
+    "period.hint.start": "Кликните дважды по календарю: сначала начальную дату периода, затем конечную.",
+    "period.hint.picked_start": "Начало периода: {date}. Выберите вторую (конечную) дату.",
+    "period.availability": "Доступность", "period.sco_share": "доля SCO", "period.no_data": "нет данных",
     "state.label": "Состояние (демо)", "state.success": "success", "state.loading": "loading", "state.empty": "empty",
     "state.validationError": "validation error", "state.serverError": "server error", "state.auto": "авто (реальный запрос)",
+    "state.no_data": "Нет данных за выбранный период/фильтр.", "state.server_error_demo": "Демо ошибки сервера.", "state.retry": "Повторить",
     "kpi.availability": "Доступность КСО", "kpi.sco_share": "Доля чеков КСО", "kpi.sco_load": "Нагрузка SCO", "kpi.pos_load": "Нагрузка POS",
+    "kpi.pos_availability": "Доступность POS", "kpi.pos_checks": "Чеков POS за неделю",
     "kpi.p95_tooltip": "p95 — время, за которое укладываются 95% чеков (95-й процентиль). Чем ниже значение, тем быстрее касса обслуживает покупателей.",
+    "kpi.norm_prefix": "норматив > ", "kpi.norm_below_prefix": "норматив ", "kpi.stores_on_control": "Магазинов на контроле",
+    "kpi.stores_below_norm": "Магазинов ниже норматива", "kpi.attention_sub": "требуют внимания",
+    "unit.pp": "п.п.", "unit.checks_week": "чек/нед", "unit.sec": "сек", "unit.hours": "ч",
+    "unit.h": "ч", "unit.min": "мин", "unit.d": "дн", "duration.ongoing": "продолжается",
     "toast.export": "CSV-файл подготовлен и скачан", "toast.saved": "Сохранено", "toast.task_created": "Задача создана",
-    "toast.task_escalated": "Задача эскалирована", "toast.ticket_created": "Заявка в ИТ создана"
+    "toast.task_escalated": "Задача эскалирована", "toast.ticket_created": "Заявка в ИТ создана",
+    "toast.task_done": "Задача выполнена", "toast.task_in_progress": "Задача переведена в работу", "toast.error_prefix": "Ошибка: ",
+    "section.general_info": "Общая информация", "section.regions_trend": "Регионы — состояние и тренд за ",
+    "section.info_sco": "Информация КСО", "section.info_pos": "Информация POS", "section.no_pos_causes": "Нет данных по техническим сбоям POS.",
+    "section.attention_problems": "Проблемы: магазины, требующие внимания", "section.all_outliers": "Все аутсайдеры →",
+    "section.tech_causes_hours": "Технические причины простоя (часы)", "section.top_availability_outliers": "TOP аутсайдеров по доступности",
+    "section.top_utilization_outliers": "TOP аутсайдеров по утилизации", "section.problem_registers": "Проблемные кассы",
+    "section.pos_sco_ratio": "Фактическое соотношение POS/SCO", "section.stores_by_potential": "Магазины по потенциалу перетока",
+    "section.store_registers": "Кассы магазина", "section.store_tasks": "Задачи по магазину",
+    "th.store": "Магазин", "th.name": "Название", "th.region": "Регион", "th.format": "Формат", "th.director": "Директор",
+    "th.availability": "Доступность", "th.sco_share": "Доля SCO", "th.potential": "Потенциал перетока", "th.cause": "Причина",
+    "th.stores_count": "Магазинов", "th.trend": "Тренд", "th.regional_director": "Региональный директор",
+    "th.register": "Касса", "th.type": "Тип", "th.state": "Состояние", "th.p95_sec": "p95, сек", "th.utilization": "Утилизация",
+    "th.revenue_week": "Выручка/нед", "th.no_stores_filtered": "Нет магазинов по заданным фильтрам.",
+    "th.no_problem_registers": "Проблемных касс не обнаружено.",
+    "cause.no_paper": "Нет бумаги", "cause.bank_error": "Ошибка банка", "cause.blocked": "Заблокирована сотрудником",
+    "cause.scale_error": "Ошибка весов", "cause.scanner_error": "Ошибка сканера", "cause.printer_error": "Ошибка принтера",
+    "cause.service_mode": "Сервисный режим", "cause.no_connection": "Нет связи (офлайн)", "cause.kkt_error": "Ошибка ККТ",
+    "cause.acquiring_error": "Сбой терминала эквайринга", "cause.pos_scanner_error": "Ошибка сканера POS",
+    "outlier.technical": "Технический фактор", "outlier.business": "Бизнес-фактор", "outlier.utilization": "Утилизация", "outlier.none": "—",
+    "reg.available": "Доступна", "reg.occupied": "Занята покупателем", "reg.blocked_by_staff": "Заблокирована сотрудником",
+    "reg.no_paper": "Нет бумаги", "reg.bank_error": "Ошибка банка", "reg.scale_error": "Ошибка весов",
+    "reg.scanner_error": "Ошибка сканера", "reg.printer_error": "Ошибка принтера", "reg.service_mode": "Сервисный режим",
+    "reg.no_connection": "Нет связи (офлайн)", "reg.off": "Выключена", "reg.unknown": "Неизвестное состояние",
+    "reg.offline_available_badge": "офлайн, но доступна",
+    "store.drilldown_hint": "Клик по плашке «Доступность»/«Доля чеков КСО» открывает почасовой график с трендом и p95 за ",
+    "store.register_click_hint": "Клик по строке кассы открывает историю состояний: сколько времени и как часто касса была в каждом статусе.",
+    "store.no_active_tasks": "Активных задач по магазину нет.",
+    "task.status.new": "Новая", "task.status.in_progress": "В работе", "task.status.done": "Выполнено",
+    "task.deadline": "срок", "task.assignee": "исполнитель", "task.in_progress_since": "В работе", "task.waiting_since": "Ожидает",
+    "task.escalated_to": "Эскалировано", "task.store_label": "Магазин", "task.attention_banner": "Показаны задачи по магазинам, требующим внимания",
+    "task.form.store": "Магазин", "task.form.register": "Касса (необязательно)", "task.form.register_none": "— не привязано —",
+    "task.form.assignee": "Исполнитель", "task.form.title": "Заголовок задачи", "task.form.title_placeholder": "Например: 087-S1 — заменить чековую ленту",
+    "task.form.kpi": "Целевой результат (KPI)", "task.form.kpi_placeholder": "Например: доступность SCO №1 ≥ 90%",
+    "task.form.kpi_help": "Опишите измеримый результат, по которому система (в реальном продукте) сможет автоматически проверить, выполнена ли задача.",
+    "task.form.due": "Срок выполнения", "task.form.quick5": "+5 мин", "task.form.quick30": "+30 мин", "task.form.quick60": "+60 мин",
+    "ticket.register": "Касса", "ticket.register_placeholder": "Например: 087-S1",
+    "ticket.description": "Описание неисправности", "ticket.description_placeholder": "Ошибка банка при оплате",
+    "diag.search_label": "Поиск по кассе/магазину", "diag.full_access_banner": "«Полный доступ» включает коммерческие метрики (выручка, доля SCO).",
+    "advisor.roadmap_banner": "Включено в визуальный прототип по решению Product Manager — статус в дорожной карте продукта открыт.",
+    "advisor.placeholder": "Задайте вопрос...", "advisor.example_hint": "Задайте вопрос — например, «{example}».",
+    "advisor.open_store_example": "→ Открыть карточку магазина №404 (пример)", "advisor.recommendations": "Рекомендации:",
+    "advisor.hypothesis": "Гипотеза:", "advisor.confidence": "уверенность",
+    "utilization.threshold_banner": "Пороги нагрузки — настраиваемый параметр из отдельного приложения настроек, не фиксированное значение.",
+    "kpi.utilization_pos": "Утилизация POS", "kpi.utilization_sco": "Утилизация SCO",
+    "kpi.actual_sco_share": "Фактическая доля SCO", "kpi.sco_transfer_potential": "Потенциал перевода на SCO",
+    "kpi.sco_transfer_sub": "чеки ≤10 товаров, безнал на POS",
+    "th.p95_of_type": "p95 ",
+    "weekday.mon": "Пн", "weekday.tue": "Вт", "weekday.wed": "Ср", "weekday.thu": "Чт", "weekday.fri": "Пт", "weekday.sat": "Сб", "weekday.sun": "Вс",
+    "toast.no_export_data": "Нет данных для экспорта",
+    "chart.no_data": "Нет данных для графика.", "chart.actual_value": "Фактическое значение", "chart.trend_ma": "Тренд (скользящее среднее)",
+    "register.history_title": "Касса {id} — история состояний", "register.type_label": "Тип", "register.current_state": "текущее состояние",
+    "register.total_time_by_state": "Суммарное время по состояниям", "register.episode_log": "Журнал эпизодов",
+    "th.start": "Начало", "th.duration": "Длительность",
+    "advisor.request_error": "Ошибка запроса к серверу.", "filter.all": "Все",
+    "chart.hourly_title": "почасовой график", "chart.daily_title": "график по дням", "chart.week_prefix": "нед."
   },
   en: {
     "brand.name": "Set", "brand.subtitle": "Checkout Efficiency",
     "role.od": "Operations Director", "role.rd": "Regional Director", "role.dm": "Store Director",
     "role.od.scope": "Whole network", "role.rd.scope": "Own region", "role.dm.scope": "Own store",
-    "scope.network": "Network", "scope.region": "Region", "scope.store": "Store",
+    "role.label": "Role (demo)",
+    "scope.network": "Network", "scope.region": "Region", "scope.store": "Store", "scope.of": "of",
     "nav.network": "Network dashboard", "nav.outliers": "Outliers", "nav.performance": "Performance",
     "nav.potential": "SCO potential", "nav.availability": "Availability", "nav.utilization": "Utilization",
     "nav.tasks": "Tasks", "nav.other_views": "Other roles (demo)", "nav.diagnostics": "Diagnostics",
@@ -56,23 +117,91 @@ const I18N = {
     "action.apply": "Apply", "action.worst_first": "Worst first", "action.best_first": "Best first",
     "action.low_availability": "Low availability", "action.low_sco": "Low SCO share", "action.high_potential": "High shift potential",
     "action.realtime": "Real time", "action.last24h": "Last 24 hours", "action.last7d": "Last 7 days", "action.last30d": "Last 30 days",
+    "action.show_all": "Show all →", "action.reset": "Reset",
     "period.label": "Period", "period.custom": "Custom period",
+    "period.hint.start": "Click the calendar twice: first the start date, then the end date.",
+    "period.hint.picked_start": "Period start: {date}. Choose the end date.",
+    "period.availability": "availability", "period.sco_share": "SCO share", "period.no_data": "no data",
     "state.label": "State (demo)", "state.success": "success", "state.loading": "loading", "state.empty": "empty",
     "state.validationError": "validation error", "state.serverError": "server error", "state.auto": "auto (real request)",
+    "state.no_data": "No data for the selected period/filter.", "state.server_error_demo": "Demo server error.", "state.retry": "Retry",
     "kpi.availability": "SCO availability", "kpi.sco_share": "SCO checkout share", "kpi.sco_load": "SCO load", "kpi.pos_load": "POS load",
+    "kpi.pos_availability": "POS availability", "kpi.pos_checks": "POS checks per week",
     "kpi.p95_tooltip": "p95 — the time within which 95% of checkouts complete (95th percentile). Lower is faster.",
+    "kpi.norm_prefix": "target > ", "kpi.norm_below_prefix": "target ", "kpi.stores_on_control": "Stores under control",
+    "kpi.stores_below_norm": "Stores below target", "kpi.attention_sub": "need attention",
+    "unit.pp": "pp", "unit.checks_week": "checks/wk", "unit.sec": "sec", "unit.hours": "h",
+    "unit.h": "h", "unit.min": "min", "unit.d": "d", "duration.ongoing": "ongoing",
     "toast.export": "CSV file prepared and downloaded", "toast.saved": "Saved", "toast.task_created": "Task created",
-    "toast.task_escalated": "Task escalated", "toast.ticket_created": "IT ticket created"
+    "toast.task_escalated": "Task escalated", "toast.ticket_created": "IT ticket created",
+    "toast.task_done": "Task completed", "toast.task_in_progress": "Task moved to in progress", "toast.error_prefix": "Error: ",
+    "section.general_info": "General information", "section.regions_trend": "Regions — status and trend for ",
+    "section.info_sco": "SCO information", "section.info_pos": "POS information", "section.no_pos_causes": "No POS technical failure data.",
+    "section.attention_problems": "Issues: stores requiring attention", "section.all_outliers": "All outliers →",
+    "section.tech_causes_hours": "Technical downtime causes (hours)", "section.top_availability_outliers": "TOP availability outliers",
+    "section.top_utilization_outliers": "TOP utilization outliers", "section.problem_registers": "Problem registers",
+    "section.pos_sco_ratio": "Actual POS/SCO ratio", "section.stores_by_potential": "Stores by shift potential",
+    "section.store_registers": "Store registers", "section.store_tasks": "Store tasks",
+    "th.store": "Store", "th.name": "Name", "th.region": "Region", "th.format": "Format", "th.director": "Director",
+    "th.availability": "Availability", "th.sco_share": "SCO share", "th.potential": "Shift potential", "th.cause": "Cause",
+    "th.stores_count": "Stores", "th.trend": "Trend", "th.regional_director": "Regional director",
+    "th.register": "Register", "th.type": "Type", "th.state": "State", "th.p95_sec": "p95, sec", "th.utilization": "Utilization",
+    "th.revenue_week": "Revenue/wk", "th.no_stores_filtered": "No stores match the selected filters.",
+    "th.no_problem_registers": "No problem registers found.",
+    "cause.no_paper": "No paper", "cause.bank_error": "Bank error", "cause.blocked": "Blocked by staff",
+    "cause.scale_error": "Scale error", "cause.scanner_error": "Scanner error", "cause.printer_error": "Printer error",
+    "cause.service_mode": "Service mode", "cause.no_connection": "No connection (offline)", "cause.kkt_error": "Fiscal register error",
+    "cause.acquiring_error": "Acquiring terminal failure", "cause.pos_scanner_error": "POS scanner error",
+    "outlier.technical": "Technical factor", "outlier.business": "Business factor", "outlier.utilization": "Utilization", "outlier.none": "—",
+    "reg.available": "Available", "reg.occupied": "Occupied by customer", "reg.blocked_by_staff": "Blocked by staff",
+    "reg.no_paper": "No paper", "reg.bank_error": "Bank error", "reg.scale_error": "Scale error",
+    "reg.scanner_error": "Scanner error", "reg.printer_error": "Printer error", "reg.service_mode": "Service mode",
+    "reg.no_connection": "No connection (offline)", "reg.off": "Off", "reg.unknown": "Unknown state",
+    "reg.offline_available_badge": "offline, but available",
+    "store.drilldown_hint": "Click the “Availability”/“SCO checkout share” tile to open an hourly chart with trend and p95 for ",
+    "store.register_click_hint": "Click a register row to open its state history: time spent and frequency in each status.",
+    "store.no_active_tasks": "No active tasks for this store.",
+    "task.status.new": "New", "task.status.in_progress": "In progress", "task.status.done": "Done",
+    "task.deadline": "due", "task.assignee": "assignee", "task.in_progress_since": "In progress", "task.waiting_since": "Waiting",
+    "task.escalated_to": "Escalated to", "task.store_label": "Store", "task.attention_banner": "Showing tasks for stores requiring attention",
+    "task.form.store": "Store", "task.form.register": "Register (optional)", "task.form.register_none": "— not linked —",
+    "task.form.assignee": "Assignee", "task.form.title": "Task title", "task.form.title_placeholder": "E.g.: 087-S1 — replace receipt paper roll",
+    "task.form.kpi": "Target result (KPI)", "task.form.kpi_placeholder": "E.g.: SCO #1 availability ≥ 90%",
+    "task.form.kpi_help": "Describe a measurable result so the system (in a real product) could automatically verify completion.",
+    "task.form.due": "Due date", "task.form.quick5": "+5 min", "task.form.quick30": "+30 min", "task.form.quick60": "+60 min",
+    "ticket.register": "Register", "ticket.register_placeholder": "E.g.: 087-S1",
+    "ticket.description": "Fault description", "ticket.description_placeholder": "Bank error during payment",
+    "diag.search_label": "Search by register/store", "diag.full_access_banner": "“Full access” includes commercial metrics (revenue, SCO share).",
+    "advisor.roadmap_banner": "Included in the visual prototype per Product Manager decision — status on the product roadmap is still open.",
+    "advisor.placeholder": "Ask a question...", "advisor.example_hint": "Ask a question — for example, “{example}”.",
+    "advisor.open_store_example": "→ Open store #404 card (example)", "advisor.recommendations": "Recommendations:",
+    "advisor.hypothesis": "Hypothesis:", "advisor.confidence": "confidence",
+    "utilization.threshold_banner": "Load thresholds are a configurable setting in the separate settings app, not a fixed value.",
+    "kpi.utilization_pos": "POS utilization", "kpi.utilization_sco": "SCO utilization",
+    "kpi.actual_sco_share": "Actual SCO share", "kpi.sco_transfer_potential": "SCO shift potential",
+    "kpi.sco_transfer_sub": "receipts ≤10 items, cashless on POS",
+    "th.p95_of_type": "p95 ",
+    "weekday.mon": "Mo", "weekday.tue": "Tu", "weekday.wed": "We", "weekday.thu": "Th", "weekday.fri": "Fr", "weekday.sat": "Sa", "weekday.sun": "Su",
+    "toast.no_export_data": "No data to export",
+    "chart.no_data": "No data for this chart.", "chart.actual_value": "Actual value", "chart.trend_ma": "Trend (moving average)",
+    "register.history_title": "Register {id} — state history", "register.type_label": "Type", "register.current_state": "current state",
+    "register.total_time_by_state": "Total time by state", "register.episode_log": "Episode log",
+    "th.start": "Start", "th.duration": "Duration",
+    "advisor.request_error": "Server request error.", "filter.all": "All",
+    "chart.hourly_title": "hourly chart", "chart.daily_title": "daily chart", "chart.week_prefix": "wk"
   }
 };
 
 let currentLang = localStorage.getItem("set_lang") || "ru";
 
-function t(key) {
-  return (I18N[currentLang] && I18N[currentLang][key]) || I18N.en[key] || I18N.ru[key] || key;
+function t(key, vars) {
+  let s = (I18N[currentLang] && I18N[currentLang][key]) || I18N.en[key] || I18N.ru[key] || key;
+  if (vars) for (const k in vars) s = s.replace(`{${k}}`, vars[k]);
+  return s;
 }
 function setLang(lang) {
   currentLang = lang;
   localStorage.setItem("set_lang", lang);
   if (typeof render === "function") render();
 }
+function dateLocale() { return currentLang === "ru" ? "ru-RU" : "en-US"; }

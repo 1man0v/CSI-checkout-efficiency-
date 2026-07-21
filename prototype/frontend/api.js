@@ -32,5 +32,6 @@ const api = {
   getDailySeries: (params) => apiRequest("GET", "/api/analytics/daily?" + new URLSearchParams(params || {})),
   getRegionsSummary: (params) => apiRequest("GET", "/api/analytics/regions?" + new URLSearchParams(params || {})),
   getHourlySeries: (params) => apiRequest("GET", "/api/analytics/hourly?" + new URLSearchParams(params || {})),
+  getPosSummary: (params) => apiRequest("GET", "/api/analytics/pos?" + new URLSearchParams(params || {})),
   getRegisterHistory: (id) => apiRequest("GET", `/api/registers/${id}/history`)
 };

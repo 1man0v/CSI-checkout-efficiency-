@@ -240,6 +240,8 @@ td.mono, th.mono { font-family: var(--font-mono); }
 .overlay.drawer-overlay { justify-content: flex-end; }
 .modal { background: var(--color-surface); border-radius: var(--radius-lg); padding: var(--space-6); width: 420px; max-width: 92vw; max-height: 88vh; overflow-y: auto; }
 .drawer { background: var(--color-surface); height: 100%; width: 420px; max-width: 92vw; padding: var(--space-6); overflow-y: auto; box-shadow: -4px 0 24px oklch(0% 0 0 / 0.15); }
+/* Широкий вариант для экранов с графиками (п.10, п.12) — базовые 420px слишком узкие для читаемого SVG-графика шириной 640-680px. */
+.drawer.drawer-wide { width: 760px; }
 .modal-header, .drawer-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: var(--space-4); }
 .modal-close { all: unset; cursor: pointer; font-size: 18px; color: var(--color-text-muted); padding: 0 var(--space-1); }
 
