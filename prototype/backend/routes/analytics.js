@@ -57,8 +57,49 @@ function dailySeries(db, query) {
   });
 }
 
+// GET /api/analytics/counts?scope=&region=&storeId=&days=30&from=&to= — большая плашка ОД: количество
+// магазинов/POS/КСО/аутсайдеров НА ДАТУ (не агрегат за период) — для тренда "текущий период vs
+// предыдущий период той же длины" и для drill-down графиков по этим 4 показателям. Количество
+// POS/КСО считается по дате регистрации на кассовом сервере (registers.installed_at) — касса
+// остается в счете, даже если телеметрия не поступает 30+ дней (см. rules.js isRegisterStale,
+// отдельное понятие). Количество аутсайдеров — упрощенно, только по доступности/доле SCO
+// (историческая недельная нагрузка POS по дням не хранится, поэтom ветка "утилизация" правила
+// classifyOutlier не воспроизводится день-в-день).
+function countsSeries(db, query) {
+  const days = Number(query.days) || 30;
+  const ids = storeIdsForScope(db, query.scope, query.region, query.storeId);
+  if (!ids.length) return [];
+  const placeholders = ids.map(() => "?").join(",");
+  const stores = db.prepare(`SELECT id, opened_at FROM stores WHERE id IN (${placeholders})`).all(...ids);
+  const registers = db.prepare(`SELECT type, store_id, installed_at FROM registers WHERE store_id IN (${placeholders})`).all(...ids);
+  const dailyRows = db.prepare(`SELECT store_id, date, availability_pct, sco_share_pct FROM daily_summary WHERE store_id IN (${placeholders})`).all(...ids);
+  const settings = db.prepare("SELECT * FROM settings_network WHERE id = 1").get();
+  const dailyByKey = new Map(dailyRows.map(r => [r.store_id + "|" + r.date, r]));
+
+  const allDates = [...new Set(dailyRows.map(r => r.date))].sort();
+  let dates;
+  if (query.from && query.to) dates = allDates.filter(d => d >= query.from && d <= query.to);
+  else dates = allDates.slice(-days);
+
+  return dates.map(date => {
+    const store_count = stores.filter(s => s.opened_at <= date).length;
+    const pos_count = registers.filter(r => r.type === "POS" && r.installed_at <= date).length;
+    const sco_count = registers.filter(r => r.type === "SCO" && r.installed_at <= date).length;
+    let outlier_count = 0;
+    for (const s of stores) {
+      const row = dailyByKey.get(s.id + "|" + date);
+      if (!row) continue;
+      if (row.availability_pct < settings.availability_norm || row.sco_share_pct < settings.sco_share_norm) outlier_count++;
+    }
+    const outlier_pct = stores.length ? Math.round((outlier_count / stores.length) * 1000) / 10 : 0;
+    return { date, store_count, pos_count, sco_count, outlier_count, outlier_pct };
+  });
+}
+
 // GET /api/analytics/regions?days=7 — сводка по регионам с трендом (текущий период vs предыдущий)
 // и именем регионального директора (замечание №5: нужна для контроля РД).
+// utilization_pct (добавлено 2026-07-22) — средняя утилизация касс региона (POS+SCO вместе), для
+// плашки "рейтинг региона" (СМ. business-rules-and-formulas.md, "14. Рейтинг региона/магазина").
 function regionsSummary(db, query) {
   const days = Number(query.days) || 7;
   const stores = db.prepare("SELECT id, region FROM stores").all();
@@ -68,6 +109,7 @@ function regionsSummary(db, query) {
   const dates = [...new Set(allDaily.map(r => r.date))].sort();
   const currentDates = new Set(dates.slice(-days));
   const previousDates = new Set(dates.slice(-2 * days, -days));
+  const registerUtil = db.prepare(`SELECT s.region AS region, r.utilization_pct AS utilization_pct FROM registers r JOIN stores s ON s.id = r.store_id`).all();
 
   function summarize(storeIds, dateSet) {
     const rows = allDaily.filter(r => storeIds.includes(r.store_id) && dateSet.has(r.date));
@@ -78,12 +120,14 @@ function regionsSummary(db, query) {
     const ids = stores.filter(s => s.region === region).map(s => s.id);
     const cur = summarize(ids, currentDates);
     const prev = summarize(ids, previousDates);
+    const utilization = avg(registerUtil.filter(r => r.region === region).map(r => r.utilization_pct));
     return {
       region,
       regionalDirector: directors.get(region) || "—",
       storeCount: ids.length,
       availability_pct: Math.round(cur.availability * 10) / 10,
       sco_share_pct: Math.round(cur.sco * 10) / 10,
+      utilization_pct: Math.round(utilization * 10) / 10,
       availability_trend: Math.round((cur.availability - prev.availability) * 10) / 10,
       sco_share_trend: Math.round((cur.sco - prev.sco) * 10) / 10
     };
@@ -183,6 +227,46 @@ function hourlySeries(db, query) {
   return { points, trend, p95 };
 }
 
+// GET /api/analytics/hourly-load?storeId=&days=7&from=&to= — плашка "график потоков по часам"
+// на карточке магазина (добавлено 2026-07-22): распределение чеков POS+SCO по часам работы
+// магазина. Если выбран один конкретный день (from === to) — фактические значения этого дня;
+// если период длиннее — среднее по каждому часу дня за весь период (business-rules-and-formulas.md,
+// "15. График потоков по часам и порог перегрузки"). Часы вне [opening_hour; closing_hour) магазина
+// не возвращаются — вне часов работы нагрузка не показательна.
+function hourlyLoadProfile(db, query) {
+  const store = db.prepare("SELECT * FROM stores WHERE id = ?").get(query.storeId);
+  if (!store) return { points: [], openingHour: 8, closingHour: 22, overloadThreshold: 0 };
+  const settings = db.prepare("SELECT * FROM settings_network WHERE id = 1").get();
+  const rows = db.prepare("SELECT ts, pos_checks, sco_checks FROM hourly_metrics WHERE store_id = ? ORDER BY ts").all(store.id);
+  const allDates = [...new Set(rows.map(r => r.ts.slice(0, 10)))].sort();
+  let dateFrom, dateTo;
+  if (query.from && query.to) { dateFrom = query.from; dateTo = query.to; }
+  else {
+    const days = Number(query.days) || 7;
+    dateTo = allDates[allDates.length - 1];
+    dateFrom = allDates[Math.max(0, allDates.length - days)];
+  }
+  const singleDay = dateFrom === dateTo;
+  const filtered = rows.filter(r => { const d = r.ts.slice(0, 10); return d >= dateFrom && d <= dateTo; });
+  const byHour = new Map();
+  for (const r of filtered) {
+    const hour = new Date(r.ts).getUTCHours();
+    if (!byHour.has(hour)) byHour.set(hour, []);
+    byHour.get(hour).push(r);
+  }
+  const points = [];
+  for (let hour = store.opening_hour; hour < store.closing_hour; hour++) {
+    const list = byHour.get(hour) || [];
+    const pos = list.length ? (singleDay ? list[list.length - 1].pos_checks : avg(list.map(r => r.pos_checks))) : 0;
+    const sco = list.length ? (singleDay ? list[list.length - 1].sco_checks : avg(list.map(r => r.sco_checks))) : 0;
+    points.push({ hour, pos_checks: Math.round(pos), sco_checks: Math.round(sco) });
+  }
+  const hoursOpen = Math.max(1, store.closing_hour - store.opening_hour);
+  const hourlyNorm = (settings.pos_weekly_norm + settings.sco_weekly_norm) / 7 / hoursOpen;
+  const overloadThreshold = Math.round(hourlyNorm * 0.7);
+  return { points, openingHour: store.opening_hour, closingHour: store.closing_hour, overloadThreshold };
+}
+
 // GET /api/registers/:id/history
 function registerHistory(db, registerId) {
   const register = db.prepare("SELECT * FROM registers WHERE id = ?").get(registerId);
@@ -199,4 +283,4 @@ function registerHistory(db, registerId) {
   return { register, episodes, totalsByStatus, occurrencesByStatus };
 }
 
-module.exports = { dailySeries, regionsSummary, hourlySeries, registerHistory, posSummary, topCauseByStore };
+module.exports = { dailySeries, countsSeries, regionsSummary, hourlySeries, hourlyLoadProfile, registerHistory, posSummary, topCauseByStore };

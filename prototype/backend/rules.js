@@ -36,6 +36,18 @@ function isRegisterAvailable(register) {
   return !UNAVAILABLE_STATUSES.has(register.status);
 }
 
+// Касса не в эксплуатации (подтверждено Product Manager, 2026-07-22): зарегистрирована на кассовом
+// сервере (мастер-данные — заводится вместе с магазином/кассой), но телеметрия от нее не поступала
+// дольше 30 дней. Отдельное понятие от "no_connection"/offline_but_available (кратковременная
+// потеря связи у работающей кассы) — здесь касса считается фактически выведенной из эксплуатации,
+// хотя формально остается в счете "количество POS/КСО" (кассовый сервер не удаляет ее из реестра).
+const STALE_THRESHOLD_DAYS = 30;
+function daysSince(isoDate, now = Date.now()) { return (now - new Date(isoDate).getTime()) / 86400000; }
+function isRegisterStale(register, now = Date.now()) {
+  return daysSince(register.last_seen_at, now) > STALE_THRESHOLD_DAYS;
+}
+function staleDays(register, now = Date.now()) { return Math.floor(daysSince(register.last_seen_at, now)); }
+
 // Маршрут эскалации задачи (подтверждено Product Manager, 2026-07-21): РД -> ОД.
 function nextEscalation(task) {
   if (!task.escalated) return "Региональный директор";
@@ -55,8 +67,10 @@ function effectiveSettings(network, regional) {
     sco_weekly_norm: network.sco_weekly_norm,
     pos_weekly_norm: network.pos_weekly_norm,
     pos_upper_overload: network.pos_upper_overload,
-    pos_lower_excess_staff: network.pos_lower_excess_staff
+    pos_lower_excess_staff: network.pos_lower_excess_staff,
+    cashier_hourly_rate: network.cashier_hourly_rate,
+    currency: network.currency
   };
 }
 
-module.exports = { kpiStatusHigherBetter, classifyOutlier, isRegisterAvailable, nextEscalation, effectiveSettings };
+module.exports = { kpiStatusHigherBetter, classifyOutlier, isRegisterAvailable, isRegisterStale, staleDays, nextEscalation, effectiveSettings, STALE_THRESHOLD_DAYS };

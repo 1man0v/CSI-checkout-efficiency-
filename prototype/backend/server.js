@@ -117,8 +117,10 @@ async function handleApi(req, res, pathname, query) {
 
     // --- analytics: тренды по времени, региональная сводка, история кассы ---
     if (req.method === "GET" && pathname === "/api/analytics/daily") return sendJson(res, 200, analytics.dailySeries(db, query));
+    if (req.method === "GET" && pathname === "/api/analytics/counts") return sendJson(res, 200, analytics.countsSeries(db, query));
     if (req.method === "GET" && pathname === "/api/analytics/regions") return sendJson(res, 200, analytics.regionsSummary(db, query));
     if (req.method === "GET" && pathname === "/api/analytics/hourly") return sendJson(res, 200, analytics.hourlySeries(db, query));
+    if (req.method === "GET" && pathname === "/api/analytics/hourly-load") return sendJson(res, 200, analytics.hourlyLoadProfile(db, query));
     if (req.method === "GET" && pathname === "/api/analytics/pos") return sendJson(res, 200, analytics.posSummary(db, query));
     m = pathname.match(/^\/api\/registers\/([^/]+)\/history$/);
     if (req.method === "GET" && m) {

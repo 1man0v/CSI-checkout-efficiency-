@@ -17,11 +17,22 @@ function getSettings(db, region) {
 // Бизнес-правило (requirements/02-system/user-roles-and-functional-blocks.md):
 // РД может менять нормативы своего региона, но снижение ниже сетевого требует согласования ОД.
 const NETWORK_FIELDS = new Set(["availability_norm", "sco_share_norm", "p95_pos", "p95_sco", "p95_touch", "p95_hybrid",
-  "sco_weekly_norm", "pos_weekly_norm", "pos_upper_overload", "pos_lower_excess_staff"]);
+  "sco_weekly_norm", "pos_weekly_norm", "pos_upper_overload", "pos_lower_excess_staff", "cashier_hourly_rate"]);
 const REGIONAL_HIGHER_BETTER_FIELDS = new Set(["availability_norm", "sco_share_norm"]);
+// "Валюта" — не число, отдельная ветка валидации (сетевой параметр, недоступен РД, как и остальные
+// нормативы вне REGIONAL_HIGHER_BETTER_FIELDS). Символ/подпись валюты берутся из ключей
+// локализации (currency.<код>) на фронтенде, здесь только код.
+const NETWORK_STRING_FIELDS = new Set(["currency"]);
+const SUPPORTED_CURRENCIES = new Set(["RUB", "USD", "EUR"]);
 
 function updateSettings(db, body) {
   const { role, region, field, value } = body;
+  if (NETWORK_STRING_FIELDS.has(field)) {
+    if (role !== "od") return { status: 403, body: { error: "Роль не может изменять настройки" } };
+    if (!SUPPORTED_CURRENCIES.has(value)) return { status: 400, body: { error: "Неизвестная валюта" } };
+    db.prepare(`UPDATE settings_network SET currency = ? WHERE id = 1`).run(value);
+    return { status: 200, body: { saved: true, field, value, scope: "network" } };
+  }
   if (!NETWORK_FIELDS.has(field)) {
     return { status: 400, body: { error: `Неизвестное поле настройки: ${field}` } };
   }

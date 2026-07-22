@@ -3,3 +3,5 @@ _bmad/
 _bmad-output/
 .DS_Store
 prototype/backend/data/
+prototype/offline/data.json
+prototype/offline/set-prototype-offline.html

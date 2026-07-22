@@ -8,6 +8,12 @@ CREATE TABLE IF NOT EXISTS regions (
   regional_director TEXT NOT NULL
 );
 
+-- opened_at — дата открытия магазина (для динамики "количество магазинов" на большой плашке ОД
+-- за выбранный период vs предыдущий период той же длины).
+-- opening_hour/closing_hour — часы работы магазина (0-23, closing_hour исключительно, т.е. магазин
+-- работает [opening_hour; closing_hour)), для плашки "график потоков по часам" на карточке магазина
+-- (добавлено 2026-07-22) — задают диапазон часов, за который строится график, и участвуют в расчете
+-- часового норматива чеков (норматив/неделя / (7 × часы работы в день), см. business-rules-and-formulas.md).
 CREATE TABLE IF NOT EXISTS stores (
   id TEXT PRIMARY KEY,
   number TEXT NOT NULL,
@@ -19,19 +25,30 @@ CREATE TABLE IF NOT EXISTS stores (
   sco_share_pct REAL NOT NULL,
   potential_sco_pct REAL NOT NULL,
   pos_load_week INTEGER NOT NULL,
-  sco_load_week INTEGER NOT NULL
+  sco_load_week INTEGER NOT NULL,
+  opened_at TEXT NOT NULL DEFAULT '2025-01-01',
+  opening_hour INTEGER NOT NULL DEFAULT 8,
+  closing_hour INTEGER NOT NULL DEFAULT 22
 );
 
+-- installed_at — дата регистрации кассы на кассовом сервере (мастер-данные, для динамики
+-- "количество POS/КСО"). last_seen_at — время последней телеметрии; касса без телеметрии
+-- дольше 30 дней считается "не в эксплуатации" (серая плашка "офлайн N дней" — см. rules.js
+-- isRegisterStale) — отдельное понятие от кратковременного "нет связи" (offline_but_available).
+-- avg_seconds — среднее время обслуживания чека (в отличие от p95_seconds — персентиля).
 CREATE TABLE IF NOT EXISTS registers (
   id TEXT PRIMARY KEY,
   store_id TEXT NOT NULL REFERENCES stores(id),
   type TEXT NOT NULL CHECK (type IN ('POS','SCO','TOUCH','HYBRID')),
   status TEXT NOT NULL,
   p95_seconds INTEGER,
+  avg_seconds INTEGER,
   checks_week INTEGER NOT NULL,
   utilization_pct INTEGER NOT NULL,
   offline_but_available INTEGER NOT NULL DEFAULT 0,
-  note TEXT
+  note TEXT,
+  installed_at TEXT NOT NULL DEFAULT '2025-01-01',
+  last_seen_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 -- Технические причины простоя. applies_to различает SCO/POS/ALL — пункт 7 замечаний по прототипу
@@ -64,7 +81,12 @@ CREATE TABLE IF NOT EXISTS settings_network (
   sco_weekly_norm INTEGER NOT NULL,
   pos_weekly_norm INTEGER NOT NULL,
   pos_upper_overload INTEGER NOT NULL,
-  pos_lower_excess_staff INTEGER NOT NULL
+  pos_lower_excess_staff INTEGER NOT NULL,
+  -- Для расчета "Потенциальная экономия" (дашборд ОД, группа "Прочее"): ставка часа кассира и
+  -- валюта, в которой она задана и в которой показывается сумма экономии. Валюта — код (RUB/USD/EUR),
+  -- символ/подпись берутся из ключей локализации (currency.<код>), не хардкодятся в коде экрана.
+  cashier_hourly_rate REAL NOT NULL DEFAULT 350,
+  currency TEXT NOT NULL DEFAULT 'RUB' CHECK (currency IN ('RUB', 'USD', 'EUR'))
 );
 
 -- Региональные переопределения нормативов (уровень РД). NULL = наследует сетевое значение.

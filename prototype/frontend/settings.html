@@ -43,8 +43,11 @@
       sco_weekly_norm: ["Норматив нагрузки SCO, чек/нед", "ниже — «недогружены»"],
       pos_weekly_norm: ["Норматив нагрузки POS, чек/нед", ""],
       pos_upper_overload: ["Верхний порог POS (перегруз), чек/нед", ""],
-      pos_lower_excess_staff: ["Нижний порог POS (избыток персонала), чек/нед", ""]
+      pos_lower_excess_staff: ["Нижний порог POS (избыток персонала), чек/нед", ""],
+      cashier_hourly_rate: ["Ставка часа кассира", "для расчета «Потенциальная экономия» (дашборд ОД)"]
     };
+    const STRING_FIELDS = new Set(["currency"]);
+    const CURRENCY_OPTIONS = ["RUB", "USD", "EUR"];
 
     async function renderSettings() {
       const role = document.getElementById("role-select").value;
@@ -52,7 +55,7 @@
       const data = await api.getSettings(region);
       const isRd = role === "rd";
       const eff = data.effective;
-      const rows = ["availability_norm", "sco_share_norm", "p95_pos", "p95_sco", "sco_weekly_norm", "pos_weekly_norm", "pos_upper_overload", "pos_lower_excess_staff"];
+      const rows = ["availability_norm", "sco_share_norm", "p95_pos", "p95_sco", "sco_weekly_norm", "pos_weekly_norm", "pos_upper_overload", "pos_lower_excess_staff", "cashier_hourly_rate"];
       document.getElementById("settings-body").innerHTML = `
         ${isRd ? `<div class="scope-banner mvp2">РД может менять доступность/долю SCO своего региона. Снижение ниже сетевого норматива требует согласования ОД.</div>` : ""}
         <div class="settings-group">
@@ -60,6 +63,10 @@
             <input type="number" id="s-${f}" value="${eff[f]}" min="0">
             <div></div>
             <button class="btn btn-sm" onclick="saveField('${f}', ${isRd})">${t("action.save")}</button></div>`).join("")}
+          <div class="settings-row"><div><div class="row-label">${t("settings.currency")}</div><div class="row-sub">${t("settings.currency_sub")}</div></div>
+            <select id="s-currency">${CURRENCY_OPTIONS.map(c => `<option value="${c}" ${eff.currency === c ? "selected" : ""}>${t("currency." + c)} (${c})</option>`).join("")}</select>
+            <div></div>
+            <button class="btn btn-sm" onclick="saveField('currency', ${isRd})">${t("action.save")}</button></div>
         </div>
         <div id="settings-toast" style="font-size:13px;min-height:20px"></div>`;
       document.getElementById("approvals-group").style.display = role === "od" ? "block" : "none";
@@ -88,7 +95,8 @@
       setTimeout(() => { box.textContent = ""; }, 3000);
     }
     async function saveField(field, isRd) {
-      const value = Number(document.getElementById("s-" + field).value);
+      const raw = document.getElementById("s-" + field).value;
+      const value = STRING_FIELDS.has(field) ? raw : Number(raw);
       const role = document.getElementById("role-select").value;
       try {
         const result = await api.updateSettings({ role, region: isRd ? REGION : null, field, value });

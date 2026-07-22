@@ -1,3 +1,5 @@
+const { isRegisterStale, staleDays } = require("../rules");
+
 // SCR-11 (Диагностика): полный доступ, включая коммерческие метрики (подтверждено PM 2026-07-21).
 function diagnostics(db, search) {
   const rows = db.prepare(`
@@ -5,7 +7,8 @@ function diagnostics(db, search) {
     FROM registers r JOIN stores s ON s.id = r.store_id
     ORDER BY r.id
   `).all();
-  const withRevenue = rows.map(r => ({ ...r, revenue_week: Math.round(r.checks_week * 780), store_label: `${r.number} «${r.name}»` }));
+  const withRevenue = rows.map(r => ({ ...r, revenue_week: Math.round(r.checks_week * 780), store_label: `${r.number} «${r.name}»`,
+    is_stale: isRegisterStale(r), stale_days: isRegisterStale(r) ? staleDays(r) : null }));
   if (!search) return withRevenue.slice(0, 20);
   const needle = search.toLowerCase();
   return withRevenue.filter(r => r.id.toLowerCase().includes(needle) || r.store_label.toLowerCase().includes(needle)).slice(0, 20);

@@ -60,12 +60,19 @@ function kpiClassFor(value, target, direction) {
   if (ratio >= 0.85) return "kpi-warn";
   return "kpi-bad";
 }
-function trendArrow(delta, unit) {
+// direction: "higher-better" (по умолчанию, рост = хорошо, зеленый) или "lower-better" (для метрик
+// вроде "количество аутсайдеров", где снижение — хорошая новость и должно быть зеленым, а не
+// красным просто потому что число уменьшилось). Стрелка всегда показывает фактическое направление
+// изменения — меняется только цвет. decimals — знаков после запятой (по умолчанию 1; 0 для
+// счетчиков штук вроде "количество касс", где дробное значение вида "+0.6 кассы" не имеет смысла).
+function trendArrow(delta, unit, direction, decimals) {
+  const dp = decimals == null ? 1 : decimals;
   const suffix = unit ? ` ${unit}` : "";
   if (delta == null || Math.abs(delta) < 0.05) return `<span class="kpi-trend">→ 0${suffix}</span>`;
-  const cls = delta > 0 ? "trend-up" : "trend-down";
+  const isGood = direction === "lower-better" ? delta < 0 : delta > 0;
+  const cls = isGood ? "trend-up" : "trend-down";
   const arrow = delta > 0 ? "↑" : "↓";
-  return `<span class="kpi-trend ${cls}">${arrow} ${Math.abs(delta).toFixed(1)}${suffix}</span>`;
+  return `<span class="kpi-trend ${cls}">${arrow} ${Math.abs(delta).toFixed(dp)}${suffix}</span>`;
 }
 function formatDate(d) { const dt = typeof d === "string" ? new Date(d) : d; return String(dt.getDate()).padStart(2, "0") + "." + String(dt.getMonth() + 1).padStart(2, "0") + "." + dt.getFullYear(); }
 function formatDateTime(d) { const dt = typeof d === "string" ? new Date(d) : d; return formatDate(dt) + ", " + String(dt.getHours()).padStart(2, "0") + ":" + String(dt.getMinutes()).padStart(2, "0"); }
@@ -82,6 +89,48 @@ function kpiCard(opts) {
     ${opts.sub ? `<div class="kpi-delta">${opts.sub}</div>` : ""}
   </div>`;
 }
+// Сумма экономии форматируется с символом валюты из ключей локализации (currency.<код>),
+// а не хардкодится — валюта задается в настройках (SCR-08).
+function formatCurrency(amount, code) {
+  return `${Math.round(amount).toLocaleString("ru-RU")} ${t("currency." + code)}`;
+}
+// Большая плашка ОД: одна широкая карточка с несколькими под-метриками внутри (количество
+// магазинов/POS/КСО/аутсайдеров) — вместо нескольких мелких плашек, каждая со своей динамикой
+// за выбранный период vs предыдущий период той же длины.
+function bigInfoTile(items) {
+  return `<div class="card kpi-card-big"><div class="kpi-big-grid">
+    ${items.map(it => `<div class="kpi-big-item ${it.onClick ? "clickable" : ""}" ${it.onClick ? `onclick="${it.onClick}"` : ""}>
+      <div class="kpi-label">${it.label}</div>
+      <div class="kpi-value mono">${it.value}${it.trend != null ? trendArrow(it.trend, it.trendUnit || "", it.trendDirection, it.trendDecimals) : ""}</div>
+      ${it.sub ? `<div class="kpi-delta">${it.sub}</div>` : ""}
+    </div>`).join("")}
+  </div></div>`;
+}
+// Плашка "рейтинг" (региона у РД, магазина у ДМ) — три вертикальные строки: лидер, "вы" (текущее
+// место), "догоняющий" (следующий за вами по рейтингу). rankInfo: {leader, mine, chaser}, каждый —
+// {name, rank, availability_pct, utilization_pct, sco_share_pct} или null (chaser отсутствует, если
+// вы уже последние). Кликабельна — открывает полный рейтинг (openRankingTable).
+function rankingTileHtml(title, rankInfo, onClick) {
+  if (!rankInfo || !rankInfo.mine) return "";
+  const { leader, mine, chaser } = rankInfo;
+  const row = (badgeKey, entry, isMine) => entry ? `<div class="rank-row ${isMine ? "rank-row-mine" : ""}">
+    <span class="rank-badge">${t(badgeKey)}</span><span class="rank-name">${escapeHtml(entry.name)}</span><span class="rank-place mono">#${entry.rank}</span>
+    <div class="rank-metrics">${t("th.availability")} ${entry.availability_pct}% · ${t("kpi.utilization_generic")} ${entry.utilization_pct}% · ${t("th.sco_share")} ${entry.sco_share_pct}%</div>
+  </div>` : "";
+  return `<div class="card kpi-card rank-tile ${onClick ? "clickable" : ""}" ${onClick ? `onclick="${onClick}"` : ""}>
+    <div class="kpi-label">${title}</div>
+    ${row("rank.leader", leader, leader && mine && leader.name === mine.name)}
+    ${leader && mine && leader.name === mine.name ? "" : row("rank.current", mine, true)}
+    ${row("rank.chaser", chaser, false)}
+  </div>`;
+}
+function openRankingTable(rows, title, nameLabel) {
+  openOverlay(`<div class="drawer drawer-wide">
+    <div class="drawer-header"><h2>${title}</h2><button class="modal-close" onclick="closeOverlay()">×</button></div>
+    <div class="card"><table><thead><tr><th class="mono">#</th><th>${nameLabel}</th><th class="mono">${t("th.availability")}</th><th class="mono">${t("kpi.utilization_generic")}</th><th class="mono">${t("th.sco_share")}</th></tr></thead>
+    <tbody>${rows.map(r => `<tr><td class="mono">${r.rank}</td><td>${escapeHtml(r.name)}</td><td class="mono">${r.availability_pct}%</td><td class="mono">${r.utilization_pct}%</td><td class="mono">${r.sco_share_pct}%</td></tr>`).join("")}</tbody></table></div>
+  </div>`, "drawer");
+}
 const REGISTER_BADGES = {
   available: "ok", occupied: "ok", blocked_by_staff: "warn", no_paper: "bad", bank_error: "bad",
   scale_error: "bad", scanner_error: "bad", printer_error: "bad", service_mode: "warn", no_connection: "info",
@@ -89,6 +138,14 @@ const REGISTER_BADGES = {
 };
 function registerLabel(status) { return t("reg." + status) !== "reg." + status ? t("reg." + status) : t("reg.unknown"); }
 function statusBadge(status) { const badge = REGISTER_BADGES[status] || REGISTER_BADGES.unknown; return `<span class="status-dot ${badge}"></span>${registerLabel(status)}`; }
+// Касса без телеметрии дольше 30 дней (r.is_stale, см. rules.js isRegisterStale) — отдельное от
+// статуса понятие: числится в реестре кассового сервера, но фактически не в эксплуатации. Везде,
+// где показывается статус кассы, такая касса помечается серой плашкой "Офлайн N дней" вместо
+// обычного статуса — независимо от того, что там записано в last-known status.
+function registerStatusBadge(r) {
+  if (r && r.is_stale) return `<span class="status-dot stale"></span>${t("reg.stale", { days: r.stale_days })}`;
+  return statusBadge(r ? r.status : r);
+}
 function outlierLabel(reason) { return { technical: t("outlier.technical"), business: t("outlier.business"), utilization: t("outlier.utilization") }[reason] || t("outlier.none"); }
 // Причины простоя приходят из БД на русском (справочник technical_causes) — сопоставляем с ключом
 // перевода по значению; ФИО/названия регионов из этого правила исключены явно (не переводятся).
@@ -99,10 +156,12 @@ const CAUSE_KEY_BY_RU = {
   "Сбой терминала эквайринга": "cause.acquiring_error", "Ошибка сканера POS": "cause.pos_scanner_error"
 };
 function causeDisplayName(causeRu) { const key = CAUSE_KEY_BY_RU[causeRu]; return key ? t(key) : causeRu; }
+// Компактный вид (уменьшенные отступы/высота полосы) — плашки "Информация КСО"/"Информация POS"
+// занимали слишком много места на экране.
 function barRow(label, value, total) {
   const pct = total ? Math.round((value / total) * 100) : 0;
-  return `<div style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px"><span>${label}</span><span class="mono">${value} ${t("unit.hours")}</span></div>
-    <div style="background:var(--color-bg);border-radius:4px;height:8px;overflow:hidden"><div style="width:${pct}%;height:100%;background:var(--color-accent)"></div></div></div>`;
+  return `<div style="margin-bottom:5px"><div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:2px"><span>${label}</span><span class="mono">${value} ${t("unit.hours")}</span></div>
+    <div style="background:var(--color-bg);border-radius:3px;height:5px;overflow:hidden"><div style="width:${pct}%;height:100%;background:var(--color-accent)"></div></div></div>`;
 }
 function toast(msg) {
   let host = el("toast-host");
@@ -390,6 +449,68 @@ function renderChart({ points, trendPoints, refValue, refLabel, formatX, kind = 
     ${refValue != null ? `<span class="legend-item"><span class="swatch-line" style="background:var(--color-yellow)"></span>${refLabel}</span>` : ""}
   </div>`;
 }
+// --- Плашка "график потоков по часам" (карточка магазина): столбчатая сложенная диаграмма
+// (POS снизу, КСО сверху) + линия тренда (скользящее среднее по 3 точкам суммы POS+КСО) + порог
+// перегрузки (70% часового норматива чеков, business-rules-and-formulas.md "15. График потоков по
+// часам и порог перегрузки"). Отдельная функция, а не renderChart: renderChart не поддерживает
+// две сложенные столбчатые серии + линию одновременно (для kind:"bar" линия тренда сознательно
+// отключена в refreshMetricChart, см. комментарий там). ---
+function renderHourlyLoadChart(points, overloadThreshold) {
+  if (!points || !points.length) return `<p style="color:var(--color-text-muted)">${t("chart.no_data")}</p>`;
+  const totals = points.map(p => p.pos_checks + p.sco_checks);
+  const dataMax = Math.max(...totals, overloadThreshold, 1);
+  const ticks = niceTicks(0, dataMax, 4);
+  const max = ticks[ticks.length - 1];
+  const width = 680, height = 240, padL = 46, padB = 26, padT = 12, padR = 14;
+  const plotW = width - padL - padR, plotH = height - padT - padB;
+  const xFor = i => padL + (plotW / points.length) * (i + 0.5);
+  const yFor = v => padT + plotH - (v / (max || 1)) * plotH;
+  const barW = Math.max(2, (plotW / points.length) * 0.6);
+
+  const trend = totals.map((v, i) => {
+    const w = totals.slice(Math.max(0, i - 2), i + 3);
+    return w.reduce((a, b) => a + b, 0) / w.length;
+  });
+  const linePath = trend.map((v, i) => `${i === 0 ? "M" : "L"} ${xFor(i).toFixed(1)},${yFor(v).toFixed(1)}`).join(" ");
+
+  const yGrid = ticks.map(v => `
+    <line x1="${padL}" y1="${yFor(v).toFixed(1)}" x2="${width - padR}" y2="${yFor(v).toFixed(1)}" stroke="var(--color-text-muted)" stroke-opacity="0.3" />
+    <text x="${padL - 6}" y="${(yFor(v) + 3).toFixed(1)}" font-size="10" fill="var(--color-text-muted)" text-anchor="end">${v}</text>`).join("");
+  const maxLabels = Math.max(2, Math.floor(plotW / 40));
+  const step = Math.max(1, Math.ceil(points.length / maxLabels));
+  const labelIdxs = [];
+  for (let i = 0; i < points.length; i += step) labelIdxs.push(i);
+  if (labelIdxs[labelIdxs.length - 1] !== points.length - 1) labelIdxs.push(points.length - 1);
+  const xLabels = labelIdxs.map(i => `<text x="${xFor(i).toFixed(1)}" y="${height - 6}" font-size="9" fill="var(--color-text-muted)" text-anchor="middle">${String(points[i].hour).padStart(2, "0")}:00</text>`).join("");
+
+  const bars = points.map((p, i) => {
+    const x = xFor(i) - barW / 2;
+    const yPos = yFor(p.pos_checks);
+    const ySco = yFor(p.pos_checks + p.sco_checks);
+    return `<rect x="${x.toFixed(1)}" y="${yPos.toFixed(1)}" width="${barW.toFixed(1)}" height="${(padT + plotH - yPos).toFixed(1)}" fill="var(--color-accent)" rx="1.5" />
+      <rect x="${x.toFixed(1)}" y="${ySco.toFixed(1)}" width="${barW.toFixed(1)}" height="${(yPos - ySco).toFixed(1)}" fill="var(--color-blue)" rx="1.5" />`;
+  }).join("");
+
+  const overloadY = yFor(overloadThreshold);
+  const overloadHours = points.filter((p, i) => totals[i] > overloadThreshold).map(p => `${String(p.hour).padStart(2, "0")}:00`);
+
+  return `<div class="chart-svg-wrap"><svg viewBox="0 0 ${width} ${height}" width="100%" style="max-width:${width}px">
+    ${yGrid}
+    <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${padT + plotH}" stroke="var(--color-border)" />
+    <line x1="${padL}" y1="${padT + plotH}" x2="${width - padR}" y2="${padT + plotH}" stroke="var(--color-border)" />
+    <line x1="${padL}" y1="${overloadY.toFixed(1)}" x2="${width - padR}" y2="${overloadY.toFixed(1)}" stroke="var(--color-yellow)" stroke-dasharray="4 3" />
+    ${bars}
+    <path d="${linePath}" fill="none" stroke="var(--color-text-muted)" stroke-width="1.5" stroke-dasharray="5 3" />
+    ${xLabels}
+  </svg></div>
+  <div class="chart-legend-row">
+    <span class="legend-item"><span class="swatch" style="background:var(--color-accent)"></span>${t("chart.legend_pos")}</span>
+    <span class="legend-item"><span class="swatch" style="background:var(--color-blue)"></span>${t("chart.legend_sco")}</span>
+    <span class="legend-item"><span class="swatch-line" style="background:var(--color-text-muted)"></span>${t("chart.trend_ma")}</span>
+    <span class="legend-item"><span class="swatch-line" style="background:var(--color-yellow)"></span>${t("chart.legend_overload")}</span>
+  </div>
+  <p style="font-size:12px;color:var(--color-text-muted);margin-top:6px">${overloadHours.length ? t("chart.hourly_load_overload_note") + " " + overloadHours.join(", ") : t("chart.hourly_load_no_overload")}</p>`;
+}
 function formatHourLabel(ts) { const d = new Date(ts); return String(d.getHours()).padStart(2, "0") + ":00 " + String(d.getDate()).padStart(2, "0") + "." + String(d.getMonth() + 1).padStart(2, "0"); }
 function formatDayLabel(ts) { const d = new Date(ts); return String(d.getDate()).padStart(2, "0") + "." + String(d.getMonth() + 1).padStart(2, "0"); }
 function formatWeekLabel(ts) { return t("chart.week_prefix") + " " + formatDayLabel(ts); }
@@ -424,13 +545,28 @@ function groupWeekly(rows, field, agg) {
   });
 }
 const METRIC_DAILY_FIELD = { availability: "availability_pct", sco_share: "sco_share_pct", pos_availability: "pos_availability_pct", sco_checks: "sco_checks", pos_checks: "pos_checks" };
-const METRIC_AGG = { availability: "avg", sco_share: "avg", pos_availability: "avg", sco_checks: "sum", pos_checks: "sum" };
-const COUNT_METRICS = new Set(["sco_checks", "pos_checks"]);
-function metricKind(metric) { return COUNT_METRICS.has(metric) ? "bar" : "line"; }
-function metricUnit(metric) { return COUNT_METRICS.has(metric) ? "" : "%"; }
+const METRIC_AGG = { availability: "avg", sco_share: "avg", pos_availability: "avg", sco_checks: "sum", pos_checks: "sum",
+  store_count: "avg", pos_count: "avg", sco_count: "avg", outlier_count: "avg" };
+const BAR_METRICS = new Set(["sco_checks", "pos_checks"]); // столбцы для счетчиков-сумм (нагрузка), не для уровней/счетов
+const NO_SUFFIX_METRICS = new Set(["sco_checks", "pos_checks", "store_count", "pos_count", "sco_count", "outlier_count"]);
+// Плашка "большая — общая информация" (замечание: количество магазинов/POS/КСО/аутсайдеров): эти
+// метрики не хранятся в daily_summary (проценты/чеки), а считаются отдельным эндпоинтом
+// /api/analytics/counts по датам регистрации на кассовом сервере — см. countsSeries в analytics.js.
+const COUNTS_FAMILY_METRICS = new Set(["store_count", "pos_count", "sco_count", "outlier_count"]);
+function metricKind(metric) { return BAR_METRICS.has(metric) ? "bar" : "line"; }
+function metricUnit(metric) { return NO_SUFFIX_METRICS.has(metric) ? "" : "%"; }
 
 async function fetchMetricChartData(scopeParams, metric, state) {
-  const granularity = chartGranularity(state);
+  // Количество магазинов/касс не имеет смысла по часам — не бывает "часовой" гранулярности ниже дня.
+  const granularity = COUNTS_FAMILY_METRICS.has(metric) && chartGranularity(state) === "hour" ? "day" : chartGranularity(state);
+  if (COUNTS_FAMILY_METRICS.has(metric)) {
+    const params = { ...scopeParams };
+    if (state.from && state.to) { params.from = state.from; params.to = state.to; }
+    else params.days = Math.max(state.days || 30, granularity === "week" ? 30 : 7);
+    const counts = await api.getCountsSeries(params);
+    if (granularity === "day") return { points: counts.map(d => ({ ts: d.date, value: d[metric] })), formatX: formatDayLabel };
+    return { points: groupWeekly(counts, metric, "avg"), formatX: formatWeekLabel };
+  }
   if (granularity === "hour") {
     const hours = Math.min((state.days || 1) * 24, 168) || 24;
     const series = await api.getHourlySeries({ metric, hours, ...scopeParams });
@@ -443,6 +579,31 @@ async function fetchMetricChartData(scopeParams, metric, state) {
   const field = METRIC_DAILY_FIELD[metric];
   if (granularity === "day") return { points: daily.map(d => ({ ts: d.date, value: d[field] })), formatX: formatDayLabel };
   return { points: groupWeekly(daily, field, METRIC_AGG[metric]), formatX: formatWeekLabel };
+}
+
+// --- Большая плашка ОД "Общая информация": количество магазинов/POS/КСО/аутсайдеров текущего
+// периода и динамика вида "выбранный период vs предыдущий период той же длины" (например, 7 дней
+// vs предыдущие 7 дней). Считается на клиенте из countsSeries, чтобы те же самые точки можно было
+// переиспользовать для графика при клике на плашку (без второго запроса).
+// Сравнение — "на дату" (сегодня vs дата N дней назад), а НЕ среднее за период: количество
+// магазинов/касс — это уровень (снимок состояния), а не показатель, который имеет смысл усреднять
+// по дням. Усреднение (как для процентов вроде доступности) давало дробные дельты вида "+0.6 кассы"
+// при добавлении одной кассы в середине периода — бессмысленно для счетчика штук (замечание
+// пользователя). Проценты (outlier_pct) по-прежнему берутся "на дату", как и остальное. ---
+async function fetchNetworkCountsSummary(scopeParams) {
+  const days = periodState.days || 7;
+  const series = await api.getCountsSeries({ ...scopeParams, days: days * 2 });
+  const dates = [...new Set(series.map(s => s.date))].sort();
+  const byDate = new Map(series.map(s => [s.date, s]));
+  const cur = dates.length ? byDate.get(dates[dates.length - 1]) : null;
+  const previousIdx = dates.length - 1 - days;
+  const prev = previousIdx >= 0 ? byDate.get(dates[previousIdx]) : null;
+  const result = {};
+  for (const f of ["store_count", "pos_count", "sco_count", "outlier_count", "outlier_pct"]) {
+    result[f] = cur ? cur[f] : 0;
+    result[f + "_trend"] = (cur && prev) ? Math.round((cur[f] - prev[f]) * 10) / 10 : null;
+  }
+  return result;
 }
 
 // --- Drill-down по KPI-плашке (любой экран, любая метрика с реальным временным рядом): единая
@@ -494,7 +655,7 @@ async function renderMiniKpiRow(scopeParams) {
       { label: t("kpi.availability"), value: availability.toFixed(0) + "%", cls: kpiClassFor(availability, 90, "higher-better") },
       { label: t("kpi.sco_share"), value: scoShare.toFixed(0) + "%", cls: kpiClassFor(scoShare, 30, "higher-better") },
       { label: t("kpi.pos_availability"), value: pos.availability_pct + "%", cls: kpiClassFor(pos.availability_pct, 95, "higher-better") },
-      { label: t("kpi.stores_on_control"), value: attention.length + " " + t("scope.of") + " " + storesList.length, cls: attention.length ? "kpi-warn" : "kpi-good" }
+      { label: t("kpi.outlier_count"), value: attention.length + " " + t("scope.of") + " " + storesList.length, cls: attention.length ? "kpi-warn" : "kpi-good" }
     ];
     const freshHost = el("mini-kpi-row");
     if (freshHost) freshHost.innerHTML = `<div class="mini-kpi-row">${tiles.map(x => `
@@ -575,7 +736,9 @@ function renderShell() {
     <nav class="nav">${NAV_ITEMS.filter(i => i.roles.includes(currentRole)).map(navItemHtml).join("")}</nav>
     <div class="nav-secondary"><div class="nav-secondary-label">${t("nav.other_views")}</div>
       ${SECONDARY_NAV_ITEMS.map(navItemHtml).join("")}
-      <a class="settings-link" href="settings.html" target="_blank">⚙ ${t("nav.settings")}</a>
+      ${typeof IS_OFFLINE !== "undefined" && IS_OFFLINE
+        ? `<a class="settings-link" onclick="openSettingsApp()">⚙ ${t("nav.settings")}</a>`
+        : `<a class="settings-link" href="settings.html" target="_blank">⚙ ${t("nav.settings")}</a>`}
       <div class="sidebar-dev-control"><label>${t("state.label")}</label>
         <select onchange="setScreenState(this.value)">
           <option value="auto">${t("state.auto")}</option>
@@ -650,12 +813,17 @@ function renderNetworkDashboard() {
   withState("SCR-01", el("scr01-body"),
     async () => {
       const scopeParams = scopeParamsForRole();
-      const [storesList, causes, regions, pos] = await Promise.all([
-        api.getStores(scopeParams), api.getTechnicalCauses(), api.getRegionsSummary({ days: periodState.days }), api.getPosSummary(scopeParams)
+      const [storesList, causes, regions, pos, counts, tasksList, settings] = await Promise.all([
+        api.getStores(scopeParams), api.getTechnicalCauses(), api.getRegionsSummary({ days: periodState.days }),
+        api.getPosSummary(scopeParams), fetchNetworkCountsSummary(scopeParams), api.getTasks(), api.getSettings(regionForRole())
       ]);
-      return { storesList, causes, regions: currentRole === "rd" ? regions.filter(r => r.region === RD_REGION) : regions, pos };
+      const details = await Promise.all(storesList.map(s => api.getStore(s.id)));
+      return { storesList, causes, allRegions: regions, pos, counts, tasksList, details, settings };
     },
-    ({ storesList, causes, regions, pos }) => {
+    ({ storesList, causes, allRegions, pos, counts, tasksList, details, settings }) => {
+      // allRegions — сеть целиком (для рейтинга региона РД среди всех регионов); regions —
+      // отфильтровано для таблицы "Регионы — состояние и тренд" (РД видит только свой регион).
+      const regions = currentRole === "rd" ? allRegions.filter(r => r.region === RD_REGION) : allRegions;
       const scopeParams = scopeParamsForRole();
       const scopeParamsAttr = JSON.stringify(scopeParams).replace(/"/g, "&quot;");
       const availability = avg(storesList.map(s => s.availability_pct));
@@ -664,22 +832,118 @@ function renderNetworkDashboard() {
       const scoCauses = causes.filter(c => c.applies_to !== "POS");
       const scoTotal = scoCauses.reduce((a, c) => a + c.hours, 0);
       const posTotal = pos.causes.reduce((a, c) => a + c.hours, 0);
-      const attentionIdsAttr = JSON.stringify(attention.map(s => s.id)).replace(/"/g, "&quot;");
+
+      // Регистры сети/региона (утилизация/скорость обслуживания POS/КСО — те же данные, что на
+      // экранах "Производительность"/"Утилизация", здесь агрегированы для плашек ОД).
+      const allRegs = details.flatMap(s => s.registers.map(r => ({ ...r, storeName: `${s.number} «${s.name}»` })));
+      const posRegs = allRegs.filter(r => r.type === "POS");
+      const scoRegs = allRegs.filter(r => r.type === "SCO");
+      const posUtil = avg(posRegs.map(r => r.utilization_pct));
+      const scoUtil = avg(scoRegs.map(r => r.utilization_pct));
+      const posSpeedRegs = posRegs.filter(r => r.avg_seconds != null);
+      const scoSpeedRegs = scoRegs.filter(r => r.avg_seconds != null);
+      const posSpeed = avg(posSpeedRegs.map(r => r.avg_seconds));
+      const scoSpeed = avg(scoSpeedRegs.map(r => r.avg_seconds));
+      const posUtilPointsAttr = JSON.stringify(posRegs.map(r => ({ ts: r.id, value: r.utilization_pct }))).replace(/"/g, "&quot;");
+      const scoUtilPointsAttr = JSON.stringify(scoRegs.map(r => ({ ts: r.id, value: r.utilization_pct }))).replace(/"/g, "&quot;");
+      const posSpeedPointsAttr = JSON.stringify(posSpeedRegs.map(r => ({ ts: r.id, value: r.avg_seconds }))).replace(/"/g, "&quot;");
+      const scoSpeedPointsAttr = JSON.stringify(scoSpeedRegs.map(r => ({ ts: r.id, value: r.avg_seconds }))).replace(/"/g, "&quot;");
+
+      // Потенциал перетока на SCO — та же формула, что на экране "Потенциал SCO" (SCR-05).
+      const potential = scoShare + avg(storesList.map(s => s.potential_sco_pct));
+      const potentialRefAttr = JSON.stringify({ value: potential, label: `${t("kpi.sco_transfer_potential")} = ${potential.toFixed(0)}%` }).replace(/"/g, "&quot;");
+
+      // Задачи, требующие внимания: просрочены (due_at в прошлом) или эскалированы, и еще не
+      // выполнены — в рамках текущего scope роли (сеть/регион/магазин).
+      const scopedStoreIds = new Set(storesList.map(s => s.id));
+      const now = Date.now();
+      const attentionTasks = tasksList.filter(tk => scopedStoreIds.has(tk.store_id) && tk.status !== "done" && (tk.escalated || new Date(tk.due_at).getTime() < now));
+      const attentionByStore = new Map();
+      for (const tk of attentionTasks) attentionByStore.set(tk.store_id, (attentionByStore.get(tk.store_id) || 0) + 1);
+      const attentionTasksPointsAttr = JSON.stringify([...attentionByStore.entries()].map(([storeId, count]) => {
+        const s = storesList.find(x => x.id === storeId);
+        return { ts: s ? s.number : storeId, value: count };
+      })).replace(/"/g, "&quot;");
+
+      // Потенциальная экономия = среднее время чека POS (часы) × потенциал чеков перевода на КСО
+      // (шт, недельный) × ставка часа кассира — по каждому магазину отдельно (своя средняя скорость
+      // POS), сумма — итог по scope. "Потенциал чеков в штуках" — потенциал_sco_pct (п.п.),
+      // примененный к недельной нагрузке POS магазина (см. requirements/02-system/business-rules-and-formulas.md,
+      // "10. Потенциальная экономия"). Валюта/ставка — настраиваемые параметры (SCR-08).
+      const cashierHourlyRate = settings.network.cashier_hourly_rate;
+      const currencyCode = settings.network.currency;
+      const savingsByStore = storesList.map(s => {
+        const detail = details.find(d => d.id === s.id);
+        const storePosRegs = detail ? detail.registers.filter(r => r.type === "POS" && r.avg_seconds != null) : [];
+        const storePosSpeed = storePosRegs.length ? avg(storePosRegs.map(r => r.avg_seconds)) : null;
+        const storePotentialChecks = s.pos_load_week * (s.potential_sco_pct / 100);
+        const value = storePosSpeed != null ? (storePosSpeed / 3600) * storePotentialChecks * cashierHourlyRate : 0;
+        return { ts: s.number, value: Math.round(value) };
+      });
+      const potentialSavings = savingsByStore.reduce((sum, r) => sum + r.value, 0);
+      const savingsPointsAttr = JSON.stringify(savingsByStore).replace(/"/g, "&quot;");
+
+      // Рейтинг региона среди всех регионов сети (только роль РД) — композитный балл: равновзвешенное
+      // среднее доступности/утилизации/доли чеков КСО (business-rules-and-formulas.md, "14. Рейтинг
+      // региона/магазина" — балл и веса не подтверждены Product Manager). "Догоняющий" — регион на
+      // одну позицию ниже в рейтинге (следующий за вами, ближайший претендент на ваше место).
+      let regionRanking = null, regionRankedAttr = null;
+      if (currentRole === "rd") {
+        const ranked = [...allRegions].map(r => ({
+          name: r.region, availability_pct: r.availability_pct, utilization_pct: r.utilization_pct, sco_share_pct: r.sco_share_pct,
+          score: (r.availability_pct + r.utilization_pct + r.sco_share_pct) / 3
+        })).sort((a, b) => b.score - a.score).map((r, i) => ({ ...r, rank: i + 1 }));
+        const myIndex = ranked.findIndex(r => r.name === RD_REGION);
+        regionRanking = { leader: ranked[0], mine: ranked[myIndex], chaser: myIndex + 1 < ranked.length ? ranked[myIndex + 1] : null };
+        regionRankedAttr = JSON.stringify(ranked).replace(/"/g, "&quot;");
+      }
 
       return `
         <div class="section"><h3>${t("section.general_info")}</h3>
-        <div class="grid grid-kpi">
-          ${kpiCard({ label: t("kpi.availability"), value: availability.toFixed(0) + "%", sub: t("kpi.norm_prefix") + "90%",
-            cls: kpiClassFor(availability, 90, "higher-better"), onClick: `openMetricChart(${scopeParamsAttr}, 'availability', '${t("kpi.availability")}')` })}
-          ${kpiCard({ label: t("kpi.sco_share"), value: scoShare.toFixed(0) + "%", sub: t("kpi.norm_prefix") + "30%",
-            cls: kpiClassFor(scoShare, 30, "higher-better"), onClick: `openMetricChart(${scopeParamsAttr}, 'sco_share', '${t("kpi.sco_share")}')` })}
-          ${kpiCard({ label: t("kpi.pos_availability"), value: pos.availability_pct + "%", cls: kpiClassFor(pos.availability_pct, 95, "higher-better"),
-            onClick: `openMetricChart(${scopeParamsAttr}, 'pos_availability', '${t("kpi.pos_availability")}')` })}
-          ${kpiCard({ label: t("kpi.pos_checks"), value: pos.checks_week.toLocaleString(dateLocale()),
-            onClick: `openMetricChart(${scopeParamsAttr}, 'pos_checks', '${t("kpi.pos_checks")}')` })}
-          ${kpiCard({ label: t("kpi.stores_on_control"), value: attention.length + " " + t("scope.of") + " " + storesList.length, sub: t("kpi.attention_sub"), cls: attention.length ? "kpi-warn" : "kpi-good",
-            onClick: attention.length ? `openAttentionTasks(${attentionIdsAttr})` : null })}
-        </div></div>
+        ${bigInfoTile([
+          { label: t("kpi.store_count"), value: Math.round(counts.store_count), trend: counts.store_count_trend, trendDecimals: 0,
+            onClick: `openMetricChart(${scopeParamsAttr}, 'store_count', '${t("kpi.store_count")}')` },
+          { label: t("kpi.pos_count"), value: Math.round(counts.pos_count), trend: counts.pos_count_trend, trendDecimals: 0,
+            onClick: `openMetricChart(${scopeParamsAttr}, 'pos_count', '${t("kpi.pos_count")}')` },
+          { label: t("kpi.sco_count"), value: Math.round(counts.sco_count), trend: counts.sco_count_trend, trendDecimals: 0,
+            onClick: `openMetricChart(${scopeParamsAttr}, 'sco_count', '${t("kpi.sco_count")}')` },
+          { label: t("kpi.outlier_count"), value: Math.round(counts.outlier_count), sub: counts.outlier_pct + "%", trend: counts.outlier_count_trend, trendDirection: "lower-better", trendDecimals: 0,
+            onClick: `openMetricChart(${scopeParamsAttr}, 'outlier_count', '${t("kpi.outlier_count")}')` }
+        ])}
+        </div>
+
+        <div class="section"><h4 class="kpi-group-label">${t("group.sco")}</h4>
+          <div class="grid grid-kpi">
+            ${kpiCard({ label: t("kpi.availability"), value: availability.toFixed(0) + "%", sub: t("kpi.norm_prefix") + "90%",
+              cls: kpiClassFor(availability, 90, "higher-better"), onClick: `openMetricChart(${scopeParamsAttr}, 'availability', '${t("kpi.availability")}')` })}
+            ${kpiCard({ label: t("kpi.utilization_sco"), value: scoUtil.toFixed(0) + "%", cls: "kpi-info",
+              onClick: `openCategoryBarChart(${scoUtilPointsAttr}, '${t("kpi.utilization_sco")}', '%')` })}
+            ${kpiCard({ label: t("kpi.sco_share"), value: scoShare.toFixed(0) + "%", sub: t("kpi.norm_prefix") + "30%",
+              cls: kpiClassFor(scoShare, 30, "higher-better"), onClick: `openMetricChart(${scopeParamsAttr}, 'sco_share', '${t("kpi.sco_share")}')` })}
+            ${kpiCard({ label: t("kpi.sco_transfer_potential"), value: potential.toFixed(0) + "%", sub: t("kpi.sco_transfer_sub"), cls: "kpi-warn",
+              onClick: `openMetricChart(${scopeParamsAttr}, 'sco_share', '${t("kpi.sco_transfer_potential")}', ${potentialRefAttr})` })}
+            ${kpiCard({ label: t("kpi.service_speed_sco"), value: (scoSpeedRegs.length ? Math.round(scoSpeed) : "—") + " " + t("unit.sec"), cls: "kpi-info",
+              onClick: `openCategoryBarChart(${scoSpeedPointsAttr}, '${t("kpi.service_speed_sco")}', ' ${t("unit.sec")}')` })}
+          </div>
+        </div>
+        <div class="section"><h4 class="kpi-group-label">${t("group.pos")}</h4>
+          <div class="grid grid-kpi">
+            ${kpiCard({ label: t("kpi.utilization_pos"), value: posUtil.toFixed(0) + "%", cls: "kpi-info",
+              onClick: `openCategoryBarChart(${posUtilPointsAttr}, '${t("kpi.utilization_pos")}', '%')` })}
+            ${kpiCard({ label: t("kpi.service_speed_pos"), value: (posSpeedRegs.length ? Math.round(posSpeed) : "—") + " " + t("unit.sec"), cls: "kpi-info",
+              onClick: `openCategoryBarChart(${posSpeedPointsAttr}, '${t("kpi.service_speed_pos")}', ' ${t("unit.sec")}')` })}
+          </div>
+        </div>
+        <div class="section"><h4 class="kpi-group-label">${t("group.other")}</h4>
+          <div class="grid grid-kpi grid-kpi-compact">
+            ${kpiCard({ label: t("kpi.attention_tasks"), value: attentionTasks.length, cls: attentionTasks.length ? "kpi-warn" : "kpi-good",
+              onClick: `openAttentionTasks(${JSON.stringify([...scopedStoreIds]).replace(/"/g, "&quot;")})` })}
+            ${kpiCard({ label: t("kpi.potential_savings"), value: formatCurrency(potentialSavings, currencyCode), sub: t("kpi.potential_savings_sub"), cls: "kpi-good",
+              onClick: `openCategoryBarChart(${savingsPointsAttr}, '${t("kpi.potential_savings")}', ' ${t("currency." + currencyCode)}')` })}
+            ${regionRanking ? rankingTileHtml(t("kpi.region_ranking"), regionRanking,
+              `openRankingTable(${regionRankedAttr}, '${t("section.ranking_table_regions")}', '${t("th.region")}')`) : ""}
+          </div>
+        </div>
 
         <div class="section"><div class="section-header"><h2>${t("section.regions_trend")}${periodLabel().toLowerCase()}</h2></div>
           <div class="card"><table><thead><tr><th>${t("th.region")}</th><th>${t("th.stores_count")}</th><th>${t("th.regional_director")}</th><th class="mono">${t("th.availability")}</th><th class="mono">${t("th.trend")}</th><th class="mono">${t("th.sco_share")}</th><th class="mono">${t("th.trend")}</th></tr></thead>
@@ -690,9 +954,10 @@ function renderNetworkDashboard() {
           </tr>`).join("")}</tbody></table></div>
         </div>
 
-        <div class="section"><h3>${t("section.info_sco")}</h3><div class="card">${scoCauses.map(c => barRow(causeDisplayName(c.cause) + (c.note ? " ⓘ" : ""), c.hours, scoTotal)).join("")}</div></div>
-        <div class="section"><h3>${t("section.info_pos")}</h3>
-          <div class="card">${pos.causes.length ? pos.causes.map(c => barRow(causeDisplayName(c.cause), c.hours, posTotal)).join("") : `<p style="color:var(--color-text-muted)">${t("section.no_pos_causes")}</p>`}</div>
+        <div class="section"><h3>${t("section.info_sco")} <span class="section-total mono">${t("section.total_prefix")} ${scoTotal} ${t("unit.hours")}</span></h3>
+          <div class="card causes-compact">${scoCauses.map(c => barRow(causeDisplayName(c.cause) + (c.note ? " ⓘ" : ""), c.hours, scoTotal)).join("")}</div></div>
+        <div class="section"><h3>${t("section.info_pos")} <span class="section-total mono">${t("section.total_prefix")} ${posTotal} ${t("unit.hours")}</span></h3>
+          <div class="card causes-compact">${pos.causes.length ? pos.causes.map(c => barRow(causeDisplayName(c.cause), c.hours, posTotal)).join("") : `<p style="color:var(--color-text-muted)">${t("section.no_pos_causes")}</p>`}</div>
         </div>
 
         <div class="section"><div class="section-header"><h2>${t("section.attention_problems")}</h2><a onclick="nav('outliers')">${t("section.all_outliers")}</a></div>
@@ -789,6 +1054,12 @@ function renderOutliers() {
 }
 
 // ================= SCR-03: Карточка магазина =================
+async function fetchStoreHourlyLoad(storeId) {
+  const params = { storeId };
+  if (periodState.from && periodState.to) { params.from = periodState.from; params.to = periodState.to; }
+  else params.days = periodState.days || 7;
+  return api.getHourlyLoadProfile(params);
+}
 function renderStoreCard(storeId) {
   // п.2: не дублировать контекст — для ДМ показываем только "Магазин №X", для ОД/РД — единственная
   // ступень пути (уровень + название магазина), без повторения одного и того же контекста дважды.
@@ -796,31 +1067,112 @@ function renderStoreCard(storeId) {
   const content = el("content");
   content.innerHTML = `<div id="scr03-header"></div><div id="scr03-body"></div>`;
   withState("SCR-03", el("scr03-body"),
-    async () => { const store = await api.getStore(storeId); const tasks = await api.getTasks(storeId); return { store, tasks }; },
-    ({ store, tasks }) => {
+    async () => {
+      const store = await api.getStore(storeId);
+      const scopeParams = { scope: "store", storeId: store.id };
+      const [tasks, counts, siblingStores, hourlyLoad] = await Promise.all([
+        api.getTasks(storeId), fetchNetworkCountsSummary(scopeParams),
+        api.getStores({ scope: "region", region: store.region }), fetchStoreHourlyLoad(store.id)
+      ]);
+      return { store, tasks, counts, siblingStores, hourlyLoad };
+    },
+    ({ store, tasks, counts, siblingStores, hourlyLoad }) => {
       if (currentRole !== "dm") renderTopbar([{ label: scopeCrumb().label, route: "network" }, { label: `${store.number} «${store.name}»` }]);
       else renderTopbar([{ label: `${store.number} «${store.name}»` }]);
       el("scr03-header").innerHTML = `<div class="section-header"><h1>${store.number} «${store.name}» <span style="font-weight:400;color:var(--color-text-muted);font-size:14px">— ${store.region}, ${store.format} · ${t("th.director").toLowerCase()}: ${store.director_name}</span></h1></div>`;
       const s = store.settings;
       const scopeParams = { scope: "store", storeId: store.id };
       const scopeParamsAttr = JSON.stringify(scopeParams).replace(/"/g, "&quot;");
+
+      const posRegs = store.registers.filter(r => r.type === "POS");
+      const scoRegs = store.registers.filter(r => r.type === "SCO");
+      const posUtil = avg(posRegs.map(r => r.utilization_pct));
+      const scoUtil = avg(scoRegs.map(r => r.utilization_pct));
+      const posSpeedRegs = posRegs.filter(r => r.avg_seconds != null);
+      const scoSpeedRegs = scoRegs.filter(r => r.avg_seconds != null);
+      const posSpeed = posSpeedRegs.length ? avg(posSpeedRegs.map(r => r.avg_seconds)) : null;
+      const scoSpeed = scoSpeedRegs.length ? avg(scoSpeedRegs.map(r => r.avg_seconds)) : null;
+      const posUtilPointsAttr = JSON.stringify(posRegs.map(r => ({ ts: r.id, value: r.utilization_pct }))).replace(/"/g, "&quot;");
+      const scoUtilPointsAttr = JSON.stringify(scoRegs.map(r => ({ ts: r.id, value: r.utilization_pct }))).replace(/"/g, "&quot;");
+      const posSpeedPointsAttr = JSON.stringify(posSpeedRegs.map(r => ({ ts: r.id, value: r.avg_seconds }))).replace(/"/g, "&quot;");
+      const scoSpeedPointsAttr = JSON.stringify(scoSpeedRegs.map(r => ({ ts: r.id, value: r.avg_seconds }))).replace(/"/g, "&quot;");
+
+      // Потенциал перетока на SCO — та же формула, что на дашборде сети/экране "Потенциал SCO".
+      const potential = store.sco_share_pct + store.potential_sco_pct;
+      const potentialRefAttr = JSON.stringify({ value: potential, label: `${t("kpi.sco_transfer_potential")} = ${potential.toFixed(0)}%` }).replace(/"/g, "&quot;");
+
+      // Задачи, требующие внимания — просрочены (due_at в прошлом) или эскалированы, еще не выполнены.
+      const now = Date.now();
+      const attentionTasks = tasks.filter(tk => tk.status !== "done" && (tk.escalated || new Date(tk.due_at).getTime() < now));
+
+      // Рейтинг магазина среди магазинов ТОГО ЖЕ региона (не сети целиком) — композитный балл:
+      // равновзвешенное среднее доступности/утилизации/доли чеков КСО, business-rules-and-formulas.md
+      // "14. Рейтинг региона/магазина" (не подтверждено Product Manager).
+      const ranked = siblingStores.map(st => ({
+        id: st.id, name: `${st.number} «${st.name}»`, availability_pct: st.availability_pct,
+        utilization_pct: st.utilization_pct, sco_share_pct: st.sco_share_pct,
+        score: (st.availability_pct + st.utilization_pct + st.sco_share_pct) / 3
+      })).sort((a, b) => b.score - a.score).map((r, i) => ({ ...r, rank: i + 1 }));
+      const myIndex = ranked.findIndex(r => r.id === store.id);
+      const storeRanking = { leader: ranked[0], mine: ranked[myIndex], chaser: myIndex + 1 < ranked.length ? ranked[myIndex + 1] : null };
+      const storeRankedAttr = JSON.stringify(ranked).replace(/"/g, "&quot;");
+
       return `
-        <div class="grid grid-kpi">
-          ${kpiCard({ label: t("kpi.availability"), value: store.availability_pct + "%", sub: t("kpi.norm_prefix") + s.availability_norm + "%",
-            cls: kpiClassFor(store.availability_pct, s.availability_norm, "higher-better"), onClick: `openMetricChart(${scopeParamsAttr}, 'availability', '${t("kpi.availability")}')` })}
-          ${kpiCard({ label: t("kpi.sco_share"), value: store.sco_share_pct + "%", sub: t("kpi.norm_prefix") + s.sco_share_norm + "%",
-            cls: kpiClassFor(store.sco_share_pct, s.sco_share_norm, "higher-better"), onClick: `openMetricChart(${scopeParamsAttr}, 'sco_share', '${t("kpi.sco_share")}')` })}
-          ${kpiCard({ label: t("kpi.sco_load"), value: store.sco_load_week + " " + t("unit.checks_week"), sub: t("kpi.norm_below_prefix") + s.sco_weekly_norm, cls: store.sco_load_week < s.sco_weekly_norm ? "kpi-info" : "kpi-good",
-            onClick: `openMetricChart(${scopeParamsAttr}, 'sco_checks', '${t("kpi.sco_load")}')` })}
-          ${kpiCard({ label: t("kpi.pos_load"), value: store.pos_load_week + " " + t("unit.checks_week"), sub: t("kpi.norm_below_prefix") + s.pos_weekly_norm, cls: store.pos_load_week > s.pos_upper_overload ? "kpi-bad" : "kpi-good",
-            onClick: `openMetricChart(${scopeParamsAttr}, 'pos_checks', '${t("kpi.pos_load")}')` })}
+        <div class="section">
+        ${bigInfoTile([
+          { label: t("kpi.pos_count"), value: Math.round(counts.pos_count), trend: counts.pos_count_trend, trendDecimals: 0,
+            onClick: `openMetricChart(${scopeParamsAttr}, 'pos_count', '${t("kpi.pos_count")}')` },
+          { label: t("kpi.sco_count"), value: Math.round(counts.sco_count), trend: counts.sco_count_trend, trendDecimals: 0,
+            onClick: `openMetricChart(${scopeParamsAttr}, 'sco_count', '${t("kpi.sco_count")}')` }
+        ])}
         </div>
+
+        <div class="section"><h4 class="kpi-group-label">${t("group.sco")}</h4>
+          <div class="grid grid-kpi">
+            ${kpiCard({ label: t("kpi.availability"), value: store.availability_pct + "%", sub: t("kpi.norm_prefix") + s.availability_norm + "%",
+              cls: kpiClassFor(store.availability_pct, s.availability_norm, "higher-better"), onClick: `openMetricChart(${scopeParamsAttr}, 'availability', '${t("kpi.availability")}')` })}
+            ${kpiCard({ label: t("kpi.utilization_sco"), value: scoUtil.toFixed(0) + "%", cls: "kpi-info",
+              onClick: `openCategoryBarChart(${scoUtilPointsAttr}, '${t("kpi.utilization_sco")}', '%')` })}
+            ${kpiCard({ label: t("kpi.sco_share"), value: store.sco_share_pct + "%", sub: t("kpi.norm_prefix") + s.sco_share_norm + "%",
+              cls: kpiClassFor(store.sco_share_pct, s.sco_share_norm, "higher-better"), onClick: `openMetricChart(${scopeParamsAttr}, 'sco_share', '${t("kpi.sco_share")}')` })}
+            ${kpiCard({ label: t("kpi.sco_transfer_potential"), value: potential.toFixed(0) + "%", sub: t("kpi.sco_transfer_sub"), cls: "kpi-warn",
+              onClick: `openMetricChart(${scopeParamsAttr}, 'sco_share', '${t("kpi.sco_transfer_potential")}', ${potentialRefAttr})` })}
+            ${kpiCard({ label: t("kpi.service_speed_sco"), value: (scoSpeedRegs.length ? Math.round(scoSpeed) : "—") + " " + t("unit.sec"), cls: "kpi-info",
+              onClick: `openCategoryBarChart(${scoSpeedPointsAttr}, '${t("kpi.service_speed_sco")}', ' ${t("unit.sec")}')` })}
+            ${kpiCard({ label: t("kpi.sco_load"), value: store.sco_load_week + " " + t("unit.checks_week"), sub: t("kpi.norm_below_prefix") + s.sco_weekly_norm, cls: store.sco_load_week < s.sco_weekly_norm ? "kpi-info" : "kpi-good",
+              onClick: `openMetricChart(${scopeParamsAttr}, 'sco_checks', '${t("kpi.sco_load")}')` })}
+          </div>
+        </div>
+        <div class="section"><h4 class="kpi-group-label">${t("group.pos")}</h4>
+          <div class="grid grid-kpi">
+            ${kpiCard({ label: t("kpi.utilization_pos"), value: posUtil.toFixed(0) + "%", cls: "kpi-info",
+              onClick: `openCategoryBarChart(${posUtilPointsAttr}, '${t("kpi.utilization_pos")}', '%')` })}
+            ${kpiCard({ label: t("kpi.service_speed_pos"), value: (posSpeedRegs.length ? Math.round(posSpeed) : "—") + " " + t("unit.sec"), cls: "kpi-info",
+              onClick: `openCategoryBarChart(${posSpeedPointsAttr}, '${t("kpi.service_speed_pos")}', ' ${t("unit.sec")}')` })}
+            ${kpiCard({ label: t("kpi.pos_load"), value: store.pos_load_week + " " + t("unit.checks_week"), sub: t("kpi.norm_below_prefix") + s.pos_weekly_norm, cls: store.pos_load_week > s.pos_upper_overload ? "kpi-bad" : "kpi-good",
+              onClick: `openMetricChart(${scopeParamsAttr}, 'pos_checks', '${t("kpi.pos_load")}')` })}
+          </div>
+        </div>
+        <div class="section"><h4 class="kpi-group-label">${t("group.other")}</h4>
+          <div class="grid grid-kpi grid-kpi-compact">
+            ${kpiCard({ label: t("kpi.attention_tasks"), value: attentionTasks.length, cls: attentionTasks.length ? "kpi-warn" : "kpi-good",
+              onClick: `openAttentionTasks(${JSON.stringify([store.id]).replace(/"/g, "&quot;")})` })}
+            ${rankingTileHtml(t("kpi.store_ranking"), storeRanking,
+              `openRankingTable(${storeRankedAttr}, '${t("section.ranking_table_stores")}', '${t("th.store")}')`)}
+          </div>
+        </div>
+
+        <div class="section"><div class="section-header"><h2>${t("kpi.hourly_load")}</h2></div>
+          <div class="card"><p style="color:var(--color-text-muted);font-size:12px;margin-top:0">${t("kpi.hourly_load_sub")}</p>
+            ${renderHourlyLoadChart(hourlyLoad.points, hourlyLoad.overloadThreshold)}</div>
+        </div>
+
         <p style="color:var(--color-text-muted);font-size:12px">${t("store.drilldown_hint")}${periodLabel().toLowerCase()}.</p>
         <div class="section"><div class="section-header"><h2>${t("section.store_registers")}</h2></div><div class="card">
           <table><thead><tr><th>${t("th.register")}</th><th>${t("th.type")}</th><th>${t("th.state")}</th>
             <th class="mono">${t("th.p95_sec")} <span class="info-tip">i<span class="info-tip-bubble">${t("kpi.p95_tooltip")}</span></span></th><th class="mono">${t("th.utilization")}</th></tr></thead>
-          <tbody>${store.registers.map(r => `<tr class="clickable-row" onclick="openRegisterHistory('${r.id}')"><td class="mono">${r.id}</td><td>${r.type}</td>
-            <td>${statusBadge(r.status)}${r.status === "no_connection" && r.is_available ? ` <span class="badge badge-info">${t("reg.offline_available_badge")}</span>` : ""}</td>
+          <tbody>${store.registers.map(r => `<tr class="clickable-row ${r.is_stale ? "row-stale" : ""}" onclick="openRegisterHistory('${r.id}')"><td class="mono">${r.id}</td><td>${r.type}</td>
+            <td>${registerStatusBadge(r)}${!r.is_stale && r.status === "no_connection" && r.is_available ? ` <span class="badge badge-info">${t("reg.offline_available_badge")}</span>` : ""}</td>
             <td class="mono">${r.p95_seconds ?? "—"}</td><td class="mono">${r.utilization_pct}%</td></tr>
             ${r.note ? `<tr><td></td><td colspan="4" style="color:var(--color-text-muted);font-size:12px;padding-top:0">${r.note}</td></tr>` : ""}`).join("")}</tbody></table>
           <p style="color:var(--color-text-muted);font-size:12px;margin-top:8px">${t("store.register_click_hint")}</p>
@@ -911,7 +1263,8 @@ function renderAvailability() {
       return `
         <div class="grid grid-kpi">${kpiCard({ label: t("kpi.availability"), value: availability.toFixed(0) + "%", sub: t("kpi.norm_prefix") + "90%", cls: kpiClassFor(availability, 90, "higher-better"),
           onClick: `openMetricChart(${scopeParamsAttr}, 'availability', '${t("kpi.availability")}')` })}${kpiCard({ label: t("kpi.stores_below_norm"), value: list.filter(s => s.availability_pct < 90).length, cls: "kpi-warn" })}</div>
-        <div class="section"><div class="section-header"><h2>${t("section.tech_causes_hours")}</h2></div><div class="card">${scoCauses.map(c => barRow(causeDisplayName(c.cause) + (c.note ? " ⓘ" : ""), c.hours, scoTotal)).join("")}</div></div>
+        <div class="section"><div class="section-header"><h2>${t("section.tech_causes_hours")} <span class="section-total mono">${t("section.total_prefix")} ${scoTotal} ${t("unit.hours")}</span></h2></div>
+          <div class="card causes-compact">${scoCauses.map(c => barRow(causeDisplayName(c.cause) + (c.note ? " ⓘ" : ""), c.hours, scoTotal)).join("")}</div></div>
         <div class="section"><div class="section-header"><h2>${t("section.top_availability_outliers")}</h2></div>
           <div class="card"><table><thead><tr><th>${t("th.store")}</th><th class="mono">${t("th.availability")}</th></tr></thead>
           <tbody>${[...list].sort((a, b) => a.availability_pct - b.availability_pct).slice(0, 5).map(s => `<tr class="clickable-row" onclick="nav('store/${s.id}')"><td>${s.number} «${s.name}»</td><td class="mono">${s.availability_pct}%</td></tr>`).join("")}</tbody></table></div></div>`;
@@ -1072,17 +1425,23 @@ async function submitTicket() {
 }
 
 // ================= SCR-11 =================
-function renderDiagnostics() {
-  renderTopbar([{ label: t("nav.diagnostics") }]);
-  const content = el("content");
-  content.innerHTML = `<div class="section-header"><h1>${t("nav.diagnostics")}</h1></div>
-    <div class="scope-banner out-of-scope">${t("diag.full_access_banner")}</div>
-    <div class="filter-bar"><div><label>${t("diag.search_label")}</label><input type="text" id="diag-search" oninput="renderDiagnostics()" value="${filterState.diag || ""}"></div></div><div id="scr11-body"></div>`;
+// preserveInput=true (при вводе в поле поиска) пропускает пересборку шапки/поля — иначе
+// content.innerHTML на каждый keystroke пересоздавал сам <input>, обрывая фокус после первого
+// символа (реальный баг, найден при проверке: многосимвольный поиск не печатался). Без аргумента
+// (первый рендер экрана, смена языка) пересобирается всё, как раньше.
+function renderDiagnostics(preserveInput) {
+  if (!preserveInput || !el("diag-search")) {
+    renderTopbar([{ label: t("nav.diagnostics") }]);
+    const content = el("content");
+    content.innerHTML = `<div class="section-header"><h1>${t("nav.diagnostics")}</h1></div>
+      <div class="scope-banner out-of-scope">${t("diag.full_access_banner")}</div>
+      <div class="filter-bar"><div><label>${t("diag.search_label")}</label><input type="text" id="diag-search" oninput="renderDiagnostics(true)" value="${filterState.diag || ""}"></div></div><div id="scr11-body"></div>`;
+  }
   const search = el("diag-search") ? el("diag-search").value : "";
   filterState.diag = search;
   withState("SCR-11", el("scr11-body"), () => api.getDiagnostics(search),
     (rows) => `<div class="card"><table><thead><tr><th>${t("th.store")}</th><th>${t("th.register")}</th><th>${t("th.state")}</th><th class="mono">${t("th.revenue_week")}</th><th class="mono">${t("th.sco_share")}</th></tr></thead>
-      <tbody>${rows.map(r => `<tr class="clickable-row" onclick="openRegisterHistory('${r.id}')"><td>${r.store_label}</td><td class="mono">${r.id}</td><td>${statusBadge(r.status)}</td><td class="mono">${r.revenue_week.toLocaleString(dateLocale())} ₽</td><td class="mono">${r.sco_share_pct}%</td></tr>`).join("")}</tbody></table></div>`);
+      <tbody>${rows.map(r => `<tr class="clickable-row ${r.is_stale ? "row-stale" : ""}" onclick="openRegisterHistory('${r.id}')"><td>${r.store_label}</td><td class="mono">${r.id}</td><td>${registerStatusBadge(r)}</td><td class="mono">${r.revenue_week.toLocaleString(dateLocale())} ₽</td><td class="mono">${r.sco_share_pct}%</td></tr>`).join("")}</tbody></table></div>`);
 }
 
 // ================= SCR-12 =================
@@ -1132,6 +1491,99 @@ async function askAdvisor(question) {
   catch (e) { chatMessages.push({ role: "assistant", text: { conclusion: t("advisor.request_error"), facts: [e.message], hypothesis: { name: "—", confidence: 0 }, recommendations: [] } }); }
   renderAdvisor();
   setTimeout(() => { const box = el("chat-messages"); if (box) box.scrollTop = box.scrollHeight; }, 0);
+}
+
+// ================= SCR-08: Настройки (в офлайн-сборке — оверлей вместо отдельного файла) =================
+// В серверной версии SCR-08 — сознательно отдельное приложение (settings.html, новая вкладка), см.
+// prototype/README.md. Единый offline-файл не может открыть второй файл, поэтому здесь тот же
+// экран показывается оверлеем поверх текущего — это адаптация под ограничение однофайловой сборки,
+// а не изменение архитектуры серверной версии (та осталась прежней).
+const SETTINGS_FIELD_LABELS = {
+  availability_norm: ["Доступность КСО, %", "норматив > значения, авто-медиана если не задано"],
+  sco_share_norm: ["Доля чеков КСО, %", "норматив > значения"],
+  p95_pos: ["p95 POS, сек", ""], p95_sco: ["p95 SCO, сек", ""],
+  sco_weekly_norm: ["Норматив нагрузки SCO, чек/нед", "ниже — «недогружены»"],
+  pos_weekly_norm: ["Норматив нагрузки POS, чек/нед", ""],
+  pos_upper_overload: ["Верхний порог POS (перегруз), чек/нед", ""],
+  pos_lower_excess_staff: ["Нижний порог POS (избыток персонала), чек/нед", ""],
+  cashier_hourly_rate: ["Ставка часа кассира", "для расчета «Потенциальная экономия» (дашборд ОД)"]
+};
+const SETTINGS_STRING_FIELDS = new Set(["currency"]);
+const SETTINGS_CURRENCY_OPTIONS = ["RUB", "USD", "EUR"];
+let settingsAppRole = "od";
+function openSettingsApp() {
+  openOverlay(`<div class="modal modal-wide">
+    <div class="modal-header"><h2>⚙ ${t("nav.settings")}</h2><button class="modal-close" onclick="closeOverlay()">×</button></div>
+    <div class="field" style="max-width:280px;margin-bottom:16px">
+      <label>${t("role.label")}</label>
+      <select id="settings-role-select" onchange="settingsAppRole=this.value; renderSettingsApp()">
+        <option value="od" ${settingsAppRole === "od" ? "selected" : ""}>${t("role.od")} — ${t("role.od.scope")}</option>
+        <option value="rd" ${settingsAppRole === "rd" ? "selected" : ""}>${t("role.rd")} — ${RD_REGION}</option>
+      </select>
+    </div>
+    <div id="settings-app-body">…</div>
+    <div class="settings-group" id="settings-approvals-group" style="display:none">
+      <h3 style="margin-top:16px">Очередь согласования (роль ОД)</h3>
+      <div id="settings-approvals-body"></div>
+    </div>
+  </div>`);
+  renderSettingsApp();
+}
+async function renderSettingsApp() {
+  const region = settingsAppRole === "rd" ? RD_REGION : null;
+  const data = await api.getSettings(region);
+  const isRd = settingsAppRole === "rd";
+  const eff = data.effective;
+  const rows = ["availability_norm", "sco_share_norm", "p95_pos", "p95_sco", "sco_weekly_norm", "pos_weekly_norm", "pos_upper_overload", "pos_lower_excess_staff", "cashier_hourly_rate"];
+  const body = el("settings-app-body");
+  if (!body) return;
+  body.innerHTML = `
+    ${isRd ? `<div class="scope-banner mvp2">РД может менять доступность/долю SCO своего региона. Снижение ниже сетевого норматива требует согласования ОД.</div>` : ""}
+    <div class="settings-group">
+      ${rows.map(f => `<div class="settings-row"><div><div class="row-label">${SETTINGS_FIELD_LABELS[f][0]}</div><div class="row-sub">${SETTINGS_FIELD_LABELS[f][1]}</div></div>
+        <input type="number" id="settings-app-${f}" value="${eff[f]}" min="0">
+        <div></div>
+        <button class="btn btn-sm" onclick="saveSettingsField('${f}', ${isRd})">${t("action.save")}</button></div>`).join("")}
+      <div class="settings-row"><div><div class="row-label">${t("settings.currency")}</div><div class="row-sub">${t("settings.currency_sub")}</div></div>
+        <select id="settings-app-currency">${SETTINGS_CURRENCY_OPTIONS.map(c => `<option value="${c}" ${eff.currency === c ? "selected" : ""}>${t("currency." + c)} (${c})</option>`).join("")}</select>
+        <div></div>
+        <button class="btn btn-sm" onclick="saveSettingsField('currency', ${isRd})">${t("action.save")}</button></div>
+    </div>
+    <div id="settings-app-toast" style="font-size:13px;min-height:20px"></div>`;
+  const approvalsGroup = el("settings-approvals-group");
+  if (approvalsGroup) approvalsGroup.style.display = settingsAppRole === "od" ? "block" : "none";
+  if (settingsAppRole === "od") await renderSettingsApprovals();
+}
+async function renderSettingsApprovals() {
+  const approvals = await api.getApprovals();
+  const box = el("settings-approvals-body");
+  if (!box) return;
+  if (!approvals.length) { box.innerHTML = `<p style="color:var(--color-text-muted)">Нет ожидающих запросов.</p>`; return; }
+  box.innerHTML = approvals.map(a => `<div class="settings-row"><div><div class="row-label">${a.region}: ${SETTINGS_FIELD_LABELS[a.field] ? SETTINGS_FIELD_LABELS[a.field][0] : a.field}</div>
+    <div class="row-sub">запрошено ${a.requested_value}, сетевой норматив ${a.current_network_value}</div></div><div></div><div></div>
+    <div style="display:flex;gap:6px"><button class="btn btn-sm" onclick="resolveSettingsApproval(${a.id}, 'approved')">Согласовать</button>
+    <button class="btn btn-sm" onclick="resolveSettingsApproval(${a.id}, 'rejected')">Отклонить</button></div></div>`).join("");
+}
+async function resolveSettingsApproval(id, decision) {
+  await api.resolveApproval(id, decision);
+  flashSettingsToast(decision === "approved" ? "Согласовано" : "Отклонено", false);
+  renderSettingsApprovals();
+}
+function flashSettingsToast(msg, isError) {
+  const box = el("settings-app-toast");
+  if (!box) return;
+  box.style.color = isError ? "var(--color-red)" : "var(--color-green)";
+  box.textContent = msg;
+  setTimeout(() => { if (box) box.textContent = ""; }, 3000);
+}
+async function saveSettingsField(field, isRd) {
+  const input = el("settings-app-" + field);
+  const value = SETTINGS_STRING_FIELDS.has(field) ? input.value : Number(input.value);
+  try {
+    const result = await api.updateSettings({ role: settingsAppRole, region: isRd ? RD_REGION : null, field, value });
+    if (result && result.approvalRequired) flashSettingsToast(result.message, false);
+    else flashSettingsToast(t("toast.saved"), false);
+  } catch (e) { flashSettingsToast(e.message, true); }
 }
 
 // ---------- Инициализация ----------

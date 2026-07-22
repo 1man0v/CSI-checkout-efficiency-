@@ -99,14 +99,46 @@ function seed() {
       ] }
   ];
 
-  const insertStore = db.prepare(`INSERT INTO stores (id, number, name, region, format, director_name, availability_pct, sco_share_pct, potential_sco_pct, pos_load_week, sco_load_week)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-  const insertRegister = db.prepare(`INSERT INTO registers (id, store_id, type, status, p95_seconds, checks_week, utilization_pct, offline_but_available, note)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+  // Часы работы магазина — иллюстративные значения по формату (не подтверждено Product Manager):
+  // гипермаркет работает дольше, магазин у дома — короче, супермаркет — стандартный интервал.
+  const STORE_HOURS_BY_FORMAT = { "Гипермаркет": [7, 23], "Супермаркет": [8, 22], "Магазин у дома": [8, 23] };
+
+  const insertStore = db.prepare(`INSERT INTO stores (id, number, name, region, format, director_name, availability_pct, sco_share_pct, potential_sco_pct, pos_load_week, sco_load_week, opened_at, opening_hour, closing_hour)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+  const insertRegister = db.prepare(`INSERT INTO registers (id, store_id, type, status, p95_seconds, avg_seconds, checks_week, utilization_pct, offline_but_available, note, installed_at, last_seen_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+
+  // Все магазины "всегда существовали" (>1 года назад) — динамика "количества магазинов" на
+  // большой плашке ОД корректно остается плоской (0), реалистично для розничной сети за 7-30 дней.
+  const STORE_OPENED_AT = dateDaysAgo(400);
+  // Кассы по умолчанию: зарегистрированы на кассовом сервере давно, телеметрия недавняя (в сети).
+  const REGISTER_DEFAULT_INSTALLED_AT = dateDaysAgo(400);
+  // Точечные исключения — демонстрируют механику пунктов 1.2/1.3 (динамика количества POS/КСО и за
+  // 7, и за 30 дней) и "касса не в эксплуатации >30 дней" (серая плашка везде, где показан статус
+  // кассы). Замечание пользователя: "количество POS/КСО — по кассовому серверу, даже если касса
+  // не была онлайн 30+ дней". Две пары дат: ~3 дня назад — видно уже в 7-дневном сравнении;
+  // ~18 дней назад — видно только в 30-дневном (за пределами 7-дневного окна с обеих сторон).
+  const REGISTER_OVERRIDES = {
+    "058-P4": { installedDaysAgo: 3 }, // только что зарегистрированная касса POS (видно в 7-дневной динамике)
+    "058-S2": { installedDaysAgo: 3 }, // только что зарегистрированная касса КСО
+    "215-P8": { installedDaysAgo: 18 }, // зарегистрирована 18 дней назад (видно только в 30-дневной динамике)
+    "192-S4": { installedDaysAgo: 18 },
+    "330-P5": { lastSeenDaysAgo: 38, note: "Телеметрия не поступает 38 дней — касса числится в реестре кассового сервера, но фактически не в эксплуатации." }
+  };
 
   for (const s of stores) {
-    insertStore.run(s.id, s.number, s.name, s.region, s.format, s.director_name, s.availability_pct, s.sco_share_pct, s.potential_sco_pct, s.pos_load_week, s.sco_load_week);
-    for (const r of s.registers) insertRegister.run(r.id, s.id, r.type, r.status, r.p95_seconds, r.checks_week, r.utilization_pct, r.offline_but_available ? 1 : 0, r.note || null);
+    const [openingHour, closingHour] = STORE_HOURS_BY_FORMAT[s.format] || [8, 22];
+    insertStore.run(s.id, s.number, s.name, s.region, s.format, s.director_name, s.availability_pct, s.sco_share_pct, s.potential_sco_pct, s.pos_load_week, s.sco_load_week, STORE_OPENED_AT, openingHour, closingHour);
+    for (const r of s.registers) {
+      const override = REGISTER_OVERRIDES[r.id] || {};
+      const installedAt = override.installedDaysAgo != null ? dateDaysAgo(override.installedDaysAgo) : REGISTER_DEFAULT_INSTALLED_AT;
+      const lastSeenAt = override.lastSeenDaysAgo != null ? isoDaysAgo(override.lastSeenDaysAgo) : isoHoursAgo(rnd(3));
+      const note = override.note || r.note || null;
+      // avg_seconds — среднее время обслуживания чека, отличное от p95 (персентиль); статистически
+      // ниже p95 для правостороннего распределения времени обслуживания.
+      const avgSeconds = r.p95_seconds != null ? Math.round(r.p95_seconds * (0.58 + rndFloat() * 0.08)) : null;
+      insertRegister.run(r.id, s.id, r.type, r.status, r.p95_seconds, avgSeconds, r.checks_week, r.utilization_pct, r.offline_but_available ? 1 : 0, note, installedAt, lastSeenAt);
+    }
   }
 
   // --- Региональные директора (для сводки регионов ОД — контроль РД, замечание №5) ---
@@ -135,8 +167,8 @@ function seed() {
   for (const c of causes) insertCause.run(...c);
 
   db.prepare(`INSERT INTO settings_network (id, availability_norm, sco_share_norm, p95_pos, p95_sco, p95_touch, p95_hybrid,
-      sco_weekly_norm, pos_weekly_norm, pos_upper_overload, pos_lower_excess_staff)
-      VALUES (1, 90, 30, 95, 65, 90, 70, 1800, 2000, 2500, 1500)`).run();
+      sco_weekly_norm, pos_weekly_norm, pos_upper_overload, pos_lower_excess_staff, cashier_hourly_rate, currency)
+      VALUES (1, 90, 30, 95, 65, 90, 70, 1800, 2000, 2500, 1500, 350, 'RUB')`).run();
 
   // --- Задачи: реалистичные формулировки и корректные ссылки на существующие кассы (пункт 14, 16) ---
   const tasks = [
@@ -170,8 +202,12 @@ function seed() {
   const HOUR_WEIGHTS = [0.5, 0.3, 0.2, 0.2, 0.3, 0.6, 1.2, 2.0, 2.8, 3.2, 3.5, 3.8, 4.2, 3.6, 3.2, 3.4, 3.8, 4.5, 5.0, 4.6, 3.8, 2.8, 1.8, 1.0];
   const HOUR_WEIGHT_SUM = HOUR_WEIGHTS.reduce((a, b) => a + b, 0);
 
-  // --- Суточные агрегаты за 30 дней (для календаря периода и тренда региона/сети — пункты 3, 8;
-  // pos_availability_pct/sco_checks/pos_checks — для drill-down графиков POS-метрик и нагрузки) ---
+  // --- Суточные агрегаты за 60 дней (для календаря периода и тренда региона/сети — пункты 3, 8;
+  // pos_availability_pct/sco_checks/pos_checks — для drill-down графиков POS-метрик и нагрузки).
+  // 60, а не 30: тренд "выбранный период vs предыдущий период той же длины" для 30-дневного
+  // пресета сравнивает последние 30 дней с ПРЕДЫДУЩИМИ 30 — нужны все 60 дней истории, иначе
+  // "предыдущий период" был бы пуст (реальный баг, найден при проверке большой плашки ОД:
+  // 30-дневный тренд считался от нулевой базы, давая бессмысленно большую дельту). ---
   const insertDaily = db.prepare(`INSERT INTO daily_summary
     (store_id, date, availability_pct, sco_share_pct, pos_availability_pct, sco_checks, pos_checks) VALUES (?, ?, ?, ?, ?, ?, ?)`);
   // trendOffset растет с "d" (сколько дней назад) — при d=0 (сегодня) значение равно базовому
@@ -179,7 +215,7 @@ function seed() {
   // "down" — что в прошлом было лучше (спад к сегодня).
   const TREND_STEP = { up: 0.35, down: -0.35, flat: 0 };
   for (const s of stores) {
-    for (let d = 29; d >= 0; d--) {
+    for (let d = 59; d >= 0; d--) {
       const trendOffset = TREND_STEP[s.trend] * d;
       const noise = (rndFloat() - 0.5) * 4;
       const availability = clamp(s.availability_pct - trendOffset + noise, 40, 100);
@@ -195,20 +231,27 @@ function seed() {
     }
   }
 
-  // --- Почасовые точки за 7 дней (для графика при клике на KPI-плашку — пункт 11) ---
+  // --- Почасовые точки за 60 дней (для графика при клике на KPI-плашку — пункт 11; расширено с 7
+  // до 60 дней 2026-07-22 для плашки "график потоков по часам" на карточке магазина, которая
+  // усредняет чеки по часу дня за произвольный выбранный период — неделю/месяц/диапазон дат, а не
+  // только за последние 7 дней) ---
   // Учитывает дневной паттерн с проседанием доступности в обеденный пик (12:00-14:00),
-  // как в примере ИИ-консультанта (requirements/02-system/ai-advisor-concept.md), и часовую кривую
-  // нагрузки (HOUR_WEIGHTS) для распределения дневного количества чеков по часам.
+  // как в примере ИИ-консультанта (requirements/02-system/ai-advisor-concept.md), часовую кривую
+  // нагрузки (HOUR_WEIGHTS) для распределения дневного количества чеков по часам, и ту же деградацию
+  // показателя по дням (trendOffset), что и daily_summary выше — иначе исторические часовые точки
+  // выглядели бы "плоскими" на фоне трендового daily_summary при усреднении за долгий период.
   const insertHourly = db.prepare(`INSERT INTO hourly_metrics
     (store_id, ts, availability_pct, sco_share_pct, pos_availability_pct, sco_checks, pos_checks) VALUES (?, ?, ?, ?, ?, ?, ?)`);
   for (const s of stores) {
-    for (let h = 24 * 7 - 1; h >= 0; h--) {
+    for (let h = 24 * 60 - 1; h >= 0; h--) {
       const ts = new Date(Date.now() - h * 3600 * 1000);
       const hourOfDay = ts.getUTCHours();
+      const daysAgo = h / 24;
+      const trendOffset = TREND_STEP[s.trend] * daysAgo;
       const lunchDip = (hourOfDay >= 12 && hourOfDay <= 14) ? (s.trend === "down" ? 18 : 8) : 0;
-      const availability = clamp(s.availability_pct - lunchDip + (rndFloat() - 0.5) * 6, 30, 100);
-      const scoShare = clamp(s.sco_share_pct + (rndFloat() - 0.5) * 5, 3, 60);
-      const posAvailability = clamp(98 - lunchDip * 0.2 + (rndFloat() - 0.5) * 4, 80, 100);
+      const availability = clamp(s.availability_pct - trendOffset - lunchDip + (rndFloat() - 0.5) * 6, 30, 100);
+      const scoShare = clamp(s.sco_share_pct - trendOffset * 0.4 + (rndFloat() - 0.5) * 5, 3, 60);
+      const posAvailability = clamp(98 - (s.trend === "down" ? trendOffset * 0.15 : 0) - lunchDip * 0.2 + (rndFloat() - 0.5) * 4, 80, 100);
       const hourFrac = HOUR_WEIGHTS[hourOfDay] / HOUR_WEIGHT_SUM;
       const scoChecks = Math.round((s.sco_load_week / 7) * hourFrac * (0.85 + rndFloat() * 0.3));
       const posChecks = Math.round((s.pos_load_week / 7) * hourFrac * (0.85 + rndFloat() * 0.3));
