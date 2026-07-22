@@ -164,58 +164,84 @@ function setScreenState(value) { screenStateOverride[currentScreenId()] = value 
 
 // --- Период (п.1, п.3): пресеты + календарь-подсказка (аналог выбора дат при бронировании
 // авиабилетов) с реальным выбором ДИАПАЗОНА (клик по началу, затем по концу периода) и единым
-// европейским форматом дат (dd.mm.yyyy) везде, включая ярлык периода и подсказки календаря. ---
-let periodCalendarMonth = new Date();
-let periodDailyCache = null;
-let periodRangeStart = null; // dateStr (YYYY-MM-DD) начала диапазона, пока не выбран конец
-function periodButtonLabel() { return periodLabel(); }
-function togglePeriodPanel() {
-  const panel = el("period-panel");
+// европейским форматом дат (dd.mm.yyyy) везде, включая ярлык периода и подсказки календаря.
+// Универсальный "ctx"-выбор периода: одна и та же реализация обслуживает и топбар (влияет на весь
+// экран через periodState), и drill-down графики (замечание: "хочу менять даты на графиках тоже
+// по интерактивному календарю, но если я менял и закрыл — не влияю на основные даты экрана").
+// ctx.getState/setState указывают, ГДЕ хранится состояние периода, ctx.onApply — что сделать после
+// применения; для графика это локальная переменная и точечное обновление только тела графика, а не
+// вызов общего render(), поэтому изменения в drawer'е никогда не просачиваются в periodState экрана. ---
+const periodPickerCtx = {};
+function definePeriodPicker(ctxId, { getState, setState, scopeParams, onApply }) {
+  periodPickerCtx[ctxId] = { getState, setState, scopeParams, onApply, month: new Date(), rangeStart: null, dailyCache: null, outsideClickHandler: null };
+}
+function ppLabel(ctxId) {
+  const st = periodPickerCtx[ctxId].getState();
+  if (st.mode === "custom") return st.customLabel;
+  const key = { realtime: "action.realtime", "7d": "action.last7d", "30d": "action.last30d" }[st.mode] || "action.last7d";
+  return t(key);
+}
+function togglePeriodPanel(ctxId) {
+  const panel = el(`period-panel-${ctxId}`);
   if (panel) { panel.remove(); return; }
-  openPeriodPanel();
+  openPeriodPanel(ctxId);
 }
-async function openPeriodPanel() {
-  periodRangeStart = null;
-  const host = el("period-picker-host");
-  const div = document.createElement("div");
-  div.className = "period-panel"; div.id = "period-panel";
-  div.innerHTML = `<div class="period-presets">
-      <button onclick="applyPeriodPreset('realtime')">${t("action.realtime")}</button>
-      <button onclick="applyPeriodPreset('7d')">${t("action.last7d")}</button>
-      <button onclick="applyPeriodPreset('30d')">${t("action.last30d")}</button>
-    </div>
-    <div id="period-calendar"></div>
-    <div class="form-help" id="period-range-hint"></div>
-    <div class="period-actions"><button class="btn btn-sm" onclick="closePeriodPanel()">${t("action.close")}</button></div>`;
-  host.appendChild(div);
-  await renderPeriodCalendar();
-  setTimeout(() => document.addEventListener("click", periodOutsideClick), 0);
-}
-function periodOutsideClick(e) {
-  const panel = el("period-panel"); const btn = el("period-btn");
-  if (panel && !panel.contains(e.target) && e.target !== btn && !btn.contains(e.target)) closePeriodPanel();
-}
-function closePeriodPanel() { const p = el("period-panel"); if (p) p.remove(); periodRangeStart = null; document.removeEventListener("click", periodOutsideClick); }
-function applyPeriodPreset(preset) {
-  const map = { realtime: { days: 1 }, "7d": { days: 7 }, "30d": { days: 30 } };
-  periodState = { mode: preset, ...map[preset] };
-  closePeriodPanel(); render();
-}
-async function renderPeriodCalendar() {
-  const host = el("period-calendar");
+async function openPeriodPanel(ctxId) {
+  const ctx = periodPickerCtx[ctxId];
+  ctx.rangeStart = null;
+  const host = el(`period-picker-host-${ctxId}`);
   if (!host) return;
-  const month = periodCalendarMonth;
+  const div = document.createElement("div");
+  div.className = "period-panel"; div.id = `period-panel-${ctxId}`;
+  div.innerHTML = `<div class="period-presets">
+      <button onclick="applyPeriodPreset('${ctxId}','realtime')">${t("action.realtime")}</button>
+      <button onclick="applyPeriodPreset('${ctxId}','7d')">${t("action.last7d")}</button>
+      <button onclick="applyPeriodPreset('${ctxId}','30d')">${t("action.last30d")}</button>
+    </div>
+    <div id="period-calendar-${ctxId}"></div>
+    <div class="form-help" id="period-range-hint-${ctxId}"></div>
+    <div class="period-actions"><button class="btn btn-sm" onclick="closePeriodPanel('${ctxId}')">${t("action.close")}</button></div>`;
+  host.appendChild(div);
+  await renderPeriodCalendar(ctxId);
+  const handler = e => periodOutsideClick(ctxId, e);
+  ctx.outsideClickHandler = handler;
+  setTimeout(() => document.addEventListener("click", handler), 0);
+}
+function periodOutsideClick(ctxId, e) {
+  const panel = el(`period-panel-${ctxId}`); const btn = el(`period-btn-${ctxId}`);
+  if (panel && !panel.contains(e.target) && e.target !== btn && !btn.contains(e.target)) closePeriodPanel(ctxId);
+}
+function closePeriodPanel(ctxId) {
+  const ctx = periodPickerCtx[ctxId];
+  const p = el(`period-panel-${ctxId}`); if (p) p.remove();
+  if (ctx) {
+    ctx.rangeStart = null;
+    if (ctx.outsideClickHandler) { document.removeEventListener("click", ctx.outsideClickHandler); ctx.outsideClickHandler = null; }
+  }
+}
+function applyPeriodPreset(ctxId, preset) {
+  const ctx = periodPickerCtx[ctxId];
+  const map = { realtime: { days: 1 }, "7d": { days: 7 }, "30d": { days: 30 } };
+  ctx.setState({ mode: preset, ...map[preset] });
+  closePeriodPanel(ctxId);
+  ctx.onApply();
+}
+async function renderPeriodCalendar(ctxId) {
+  const ctx = periodPickerCtx[ctxId];
+  const host = el(`period-calendar-${ctxId}`);
+  if (!host) return;
+  const month = ctx.month;
   const year = month.getFullYear(), mon = month.getMonth();
   const first = new Date(year, mon, 1);
   const startOffset = (first.getDay() + 6) % 7; // понедельник — первый день недели
   const daysInMonth = new Date(year, mon + 1, 0).getDate();
-  if (!periodDailyCache) {
-    try { periodDailyCache = await api.getDailySeries({ scope: "network", days: 60 }); } catch (e) { periodDailyCache = []; }
+  if (!ctx.dailyCache) {
+    try { ctx.dailyCache = await api.getDailySeries({ ...(ctx.scopeParams || { scope: "network" }), days: 60 }); } catch (e) { ctx.dailyCache = []; }
   }
-  const byDate = new Map(periodDailyCache.map(d => [d.date, d]));
+  const byDate = new Map(ctx.dailyCache.map(d => [d.date, d]));
   const monthLabel = month.toLocaleDateString(dateLocale(), { month: "long", year: "numeric" });
   const weekdays = ["weekday.mon", "weekday.tue", "weekday.wed", "weekday.thu", "weekday.fri", "weekday.sat", "weekday.sun"];
-  let cells = `<div class="period-calendar-header"><button onclick="changePeriodMonth(event,-1)">←</button><span>${monthLabel}</span><button onclick="changePeriodMonth(event,1)">→</button></div>
+  let cells = `<div class="period-calendar-header"><button onclick="changePeriodMonth(event,'${ctxId}',-1)">←</button><span>${monthLabel}</span><button onclick="changePeriodMonth(event,'${ctxId}',1)">→</button></div>
     <div class="period-calendar-grid">${weekdays.map(k => `<div class="dow">${t(k)}</div>`).join("")}`;
   for (let i = 0; i < startOffset; i++) cells += `<div class="period-day empty"></div>`;
   for (let d = 1; d <= daysInMonth; d++) {
@@ -223,21 +249,26 @@ async function renderPeriodCalendar() {
     const info = byDate.get(dateStr);
     const dotColor = info ? (info.availability_pct >= 90 ? "var(--color-green)" : info.availability_pct >= 80 ? "var(--color-yellow)" : "var(--color-red)") : "transparent";
     const tooltip = info ? `${t("period.availability")}: ${info.availability_pct}%, ${t("period.sco_share")}: ${info.sco_share_pct}%` : t("period.no_data");
-    const isEdge = periodRangeStart === dateStr;
-    cells += `<div class="period-day ${isEdge ? "range-edge" : ""}" onmouseenter="showDayTooltip(event,'${dateStr}','${tooltip}')" onmouseleave="hideDayTooltip()" onclick="selectPeriodDate(event,'${dateStr}')">
+    const isEdge = ctx.rangeStart === dateStr;
+    cells += `<div class="period-day ${isEdge ? "range-edge" : ""}" onmouseenter="showDayTooltip(event,'${dateStr}','${tooltip}')" onmouseleave="hideDayTooltip()" onclick="selectPeriodDate(event,'${ctxId}','${dateStr}')">
       ${d}<span class="dot" style="background:${dotColor}"></span></div>`;
   }
   cells += `</div>`;
   host.innerHTML = cells;
-  const hint = el("period-range-hint");
-  if (hint) hint.textContent = periodRangeStart ? t("period.hint.picked_start", { date: formatDateShort(periodRangeStart) }) : t("period.hint.start");
+  const hint = el(`period-range-hint-${ctxId}`);
+  if (hint) hint.textContent = ctx.rangeStart ? t("period.hint.picked_start", { date: formatDateShort(ctx.rangeStart) }) : t("period.hint.start");
 }
 // event.stopPropagation() необходим: клик пересоздает DOM ячеек/шапки календаря синхронно внутри
 // обработчика, из-за чего исходный e.target отсоединяется от документа ДО того, как событие
 // всплывет до document-обработчика periodOutsideClick — тот видит panel.contains(detached)===false
 // и закрывает панель, как будто клик был снаружи. Без остановки всплытия календарь схлопывался бы
 // при каждом клике по дню/стрелке месяца.
-function changePeriodMonth(event, delta) { event.stopPropagation(); periodCalendarMonth = new Date(periodCalendarMonth.getFullYear(), periodCalendarMonth.getMonth() + delta, 1); renderPeriodCalendar(); }
+function changePeriodMonth(event, ctxId, delta) {
+  event.stopPropagation();
+  const ctx = periodPickerCtx[ctxId];
+  ctx.month = new Date(ctx.month.getFullYear(), ctx.month.getMonth() + delta, 1);
+  renderPeriodCalendar(ctxId);
+}
 function showDayTooltip(e, dateStr, text) {
   hideDayTooltip();
   const bubble = document.createElement("div");
@@ -245,16 +276,27 @@ function showDayTooltip(e, dateStr, text) {
   e.currentTarget.appendChild(bubble);
 }
 function hideDayTooltip() { const b = el("day-tooltip"); if (b) b.remove(); }
-function selectPeriodDate(event, dateStr) {
+function selectPeriodDate(event, ctxId, dateStr) {
   event.stopPropagation();
-  if (!periodRangeStart) { periodRangeStart = dateStr; renderPeriodCalendar(); return; }
-  let from = periodRangeStart, to = dateStr;
+  const ctx = periodPickerCtx[ctxId];
+  if (!ctx.rangeStart) { ctx.rangeStart = dateStr; renderPeriodCalendar(ctxId); return; }
+  let from = ctx.rangeStart, to = dateStr;
   if (from > to) [from, to] = [to, from];
   const days = Math.max(1, Math.round((new Date(to).getTime() - new Date(from).getTime()) / 86400000) + 1);
-  periodState = { mode: "custom", customLabel: `${formatDateShort(from)}–${formatDateShort(to)}`, days, from, to };
-  periodRangeStart = null;
-  closePeriodPanel(); render();
+  ctx.setState({ mode: "custom", customLabel: `${formatDateShort(from)}–${formatDateShort(to)}`, days, from, to });
+  ctx.rangeStart = null;
+  closePeriodPanel(ctxId);
+  ctx.onApply();
 }
+// Топбар всегда влияет на весь экран: getState/setState читают и пишут напрямую в periodState,
+// onApply вызывает общий render(). Для drill-down графиков контекст создается отдельно на каждое
+// открытие (см. openMetricChart) с локальной переменной вместо periodState.
+definePeriodPicker("topbar", {
+  getState: () => periodState,
+  setState: s => { periodState = s; },
+  scopeParams: { scope: "network" },
+  onApply: () => render()
+});
 
 // --- График: линия или столбцы, с динамическими осями. Правки по замечанию: на оси X не было
 // подписей вовсе (только 3 фиксированные точки), на оси Y — не было промежуточных значений (только
@@ -353,10 +395,11 @@ function formatDayLabel(ts) { const d = new Date(ts); return String(d.getDate())
 function formatWeekLabel(ts) { return t("chart.week_prefix") + " " + formatDayLabel(ts); }
 
 // --- Динамическая гранулярность оси времени по выбранному периоду: день -> часы, неделя -> дни,
-// месяц и более -> недели. ---
-function chartGranularity() {
-  const days = periodState.days || 7;
-  if (periodState.mode === "realtime" || days <= 1) return "hour";
+// месяц и более -> недели. Принимает конкретное состояние периода (а не всегда глобальный
+// periodState), т.к. у drill-down графика может быть свой локальный период. ---
+function chartGranularity(state) {
+  const days = state.days || 7;
+  if (state.mode === "realtime" || days <= 1) return "hour";
   if (days <= 12) return "day";
   return "week";
 }
@@ -386,16 +429,16 @@ const COUNT_METRICS = new Set(["sco_checks", "pos_checks"]);
 function metricKind(metric) { return COUNT_METRICS.has(metric) ? "bar" : "line"; }
 function metricUnit(metric) { return COUNT_METRICS.has(metric) ? "" : "%"; }
 
-async function fetchMetricChartData(scopeParams, metric) {
-  const granularity = chartGranularity();
+async function fetchMetricChartData(scopeParams, metric, state) {
+  const granularity = chartGranularity(state);
   if (granularity === "hour") {
-    const hours = Math.min((periodState.days || 1) * 24, 168) || 24;
+    const hours = Math.min((state.days || 1) * 24, 168) || 24;
     const series = await api.getHourlySeries({ metric, hours, ...scopeParams });
     return { points: series.points, trendPoints: series.trend, refValue: series.p95, formatX: formatHourLabel };
   }
   const params = { ...scopeParams };
-  if (periodState.from && periodState.to) { params.from = periodState.from; params.to = periodState.to; }
-  else params.days = Math.max(periodState.days || 30, granularity === "week" ? 30 : 7);
+  if (state.from && state.to) { params.from = state.from; params.to = state.to; }
+  else params.days = Math.max(state.days || 30, granularity === "week" ? 30 : 7);
   const daily = await api.getDailySeries(params);
   const field = METRIC_DAILY_FIELD[metric];
   if (granularity === "day") return { points: daily.map(d => ({ ts: d.date, value: d[field] })), formatX: formatDayLabel };
@@ -405,26 +448,74 @@ async function fetchMetricChartData(scopeParams, metric) {
 // --- Drill-down по KPI-плашке (любой экран, любая метрика с реальным временным рядом): единая
 // точка входа, гранулярность и тип графика (линия/столбцы) выбираются автоматически по метрике
 // и выбранному периоду. refOverride позволяет заменить p95-подсказку на целевое значение (например,
-// потенциал перевода на SCO вместо p95). ---
+// потенциал перевода на SCO вместо p95).
+// У графика СВОЙ локальный период (drawerPeriod), стартующий как копия текущего periodState экрана —
+// пользователь может поменять диапазон прямо в drawer'е (не листая обратно на экран), но это никак
+// не пишется обратно в periodState: закрыл drawer — локальный период просто отбрасывается. ---
+let drawerPeriod = null;
 function openMetricChart(scopeParams, metric, label, refOverride) {
   const kind = metricKind(metric);
   const suffix = metricUnit(metric);
+  drawerPeriod = { ...periodState };
+  definePeriodPicker("drawer", {
+    getState: () => drawerPeriod,
+    setState: s => { drawerPeriod = s; },
+    scopeParams,
+    onApply: () => refreshMetricChart(scopeParams, metric, refOverride, kind, suffix)
+  });
   openOverlay(`<div class="drawer drawer-wide">
-    <div class="drawer-header"><h2>${label} (${periodLabel()})</h2><button class="modal-close" onclick="closeOverlay()">×</button></div>
+    <div class="drawer-header">
+      <div>
+        <h2>${label}</h2>
+        <div class="period-picker" id="period-picker-host-drawer" style="margin-top:6px">
+          <button class="btn btn-sm period-btn" id="period-btn-drawer" onclick="togglePeriodPanel('drawer')">📅 <span id="drawer-period-label">${ppLabel("drawer")}</span></button>
+        </div>
+      </div>
+      <button class="modal-close" onclick="closeOverlay()">×</button>
+    </div>
     <div id="metric-chart-body"><div class="skeleton skeleton-line" style="width:90%"></div></div>
+    <div id="mini-kpi-row"></div>
   </div>`, "drawer");
-  (async () => {
-    try {
-      const { points, trendPoints, refValue, formatX } = await fetchMetricChartData(scopeParams, metric);
-      const finalRef = refOverride ? refOverride.value : refValue;
-      const finalRefLabel = refOverride ? refOverride.label : (refValue != null ? `p95 = ${refValue}${suffix}` : undefined);
-      const body = el("metric-chart-body");
-      if (body) body.innerHTML = renderChart({ points, trendPoints: kind === "bar" ? null : trendPoints, refValue: finalRef, refLabel: finalRefLabel, formatX, kind, valueSuffix: suffix });
-    } catch (e) {
-      const body = el("metric-chart-body");
-      if (body) body.innerHTML = `<p style="color:var(--color-red)">${escapeHtml(e.message)}</p>`;
-    }
-  })();
+  refreshMetricChart(scopeParams, metric, refOverride, kind, suffix);
+  renderMiniKpiRow(scopeParams);
+}
+// --- Свободное место под графиком в drawer'е используем для компактной сводки ключевых
+// показателей (как в блоке "Общая информация" дашборда сети) — приглушенно-серым, чтобы не
+// отвлекать от основного графика, с раскраской в реальный статусный цвет при наведении. ---
+async function renderMiniKpiRow(scopeParams) {
+  const host = el("mini-kpi-row");
+  if (!host) return;
+  try {
+    const [storesList, pos] = await Promise.all([api.getStores(scopeParams), api.getPosSummary(scopeParams)]);
+    const availability = avg(storesList.map(s => s.availability_pct));
+    const scoShare = avg(storesList.map(s => s.sco_share_pct));
+    const attention = storesList.filter(s => s.outlier);
+    const tiles = [
+      { label: t("kpi.availability"), value: availability.toFixed(0) + "%", cls: kpiClassFor(availability, 90, "higher-better") },
+      { label: t("kpi.sco_share"), value: scoShare.toFixed(0) + "%", cls: kpiClassFor(scoShare, 30, "higher-better") },
+      { label: t("kpi.pos_availability"), value: pos.availability_pct + "%", cls: kpiClassFor(pos.availability_pct, 95, "higher-better") },
+      { label: t("kpi.stores_on_control"), value: attention.length + " " + t("scope.of") + " " + storesList.length, cls: attention.length ? "kpi-warn" : "kpi-good" }
+    ];
+    const freshHost = el("mini-kpi-row");
+    if (freshHost) freshHost.innerHTML = `<div class="mini-kpi-row">${tiles.map(x => `
+      <div class="mini-kpi-tile ${x.cls}"><div class="mini-kpi-label">${x.label}</div><div class="mini-kpi-value">${x.value}</div></div>`).join("")}</div>`;
+  } catch (e) { /* сводка необязательна — молча пропускаем при ошибке, основной график уже показан */ }
+}
+async function refreshMetricChart(scopeParams, metric, refOverride, kind, suffix) {
+  const labelEl = el("drawer-period-label");
+  if (labelEl) labelEl.textContent = ppLabel("drawer");
+  const body = el("metric-chart-body");
+  if (body) body.innerHTML = `<div class="skeleton skeleton-line" style="width:90%"></div>`;
+  try {
+    const { points, trendPoints, refValue, formatX } = await fetchMetricChartData(scopeParams, metric, drawerPeriod);
+    const finalRef = refOverride ? refOverride.value : refValue;
+    const finalRefLabel = refOverride ? refOverride.label : (refValue != null ? `p95 = ${refValue}${suffix}` : undefined);
+    const freshBody = el("metric-chart-body");
+    if (freshBody) freshBody.innerHTML = renderChart({ points, trendPoints: kind === "bar" ? null : trendPoints, refValue: finalRef, refLabel: finalRefLabel, formatX, kind, valueSuffix: suffix });
+  } catch (e) {
+    const freshBody = el("metric-chart-body");
+    if (freshBody) freshBody.innerHTML = `<p style="color:var(--color-red)">${escapeHtml(e.message)}</p>`;
+  }
 }
 
 // --- Столбчатая диаграмма по категориям (не по времени) — для метрик без временного ряда в модели
@@ -507,8 +598,8 @@ function navItemHtml(item) {
 // п.2: слева — контекст (что смотрю сейчас), справа — часы 24ч + период + язык (не дублирующие подписи)
 function renderTopbarShell() {
   el("topbar-tools-right").innerHTML = `
-    <div class="period-picker" id="period-picker-host">
-      <button class="btn btn-sm period-btn" id="period-btn" onclick="togglePeriodPanel()">📅 ${periodButtonLabel()}</button>
+    <div class="period-picker" id="period-picker-host-topbar">
+      <button class="btn btn-sm period-btn" id="period-btn-topbar" onclick="togglePeriodPanel('topbar')">📅 ${ppLabel("topbar")}</button>
     </div>
     <span class="topbar-clock mono" id="live-clock"></span>
     <select class="lang-select" onchange="setLang(this.value)">${LANGUAGES.map(l => `<option value="${l.code}" ${l.code === currentLang ? "selected" : ""}>${l.label}</option>`).join("")}</select>`;
