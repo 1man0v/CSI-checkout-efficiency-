@@ -18,7 +18,7 @@
       <label>Роль (демо)</label>
       <select id="role-select" onchange="renderSettings()">
         <option value="od">Операционный директор — вся сеть</option>
-        <option value="rd">Региональный директор — регион «Москва-Восток»</option>
+        <option value="rd">Региональный директор — регион «Регион 3»</option>
       </select>
     </div>
 
@@ -35,7 +35,7 @@
   <script src="i18n.js"></script>
   <script src="api.js"></script>
   <script>
-    const REGION = "Москва-Восток";
+    const REGION = "Регион 3"; // обновлено 2026-09-13 вместе с переходом на реальные номера магазинов
     const FIELD_LABELS = {
       availability_norm: ["Доступность КСО, %", "норматив > значения, авто-медиана если не задано"],
       sco_share_norm: ["Доля чеков КСО, %", "норматив > значения"],

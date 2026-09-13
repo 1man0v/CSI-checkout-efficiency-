@@ -2,8 +2,10 @@
    (нумерация комментариев соответствует пунктам замечаний пользователя). */
 
 let currentRole = localStorage.getItem("set_role") || "od";
-const RD_REGION = "Москва-Восток";
-const DM_STORE_ID = "404";
+// Обновлено 2026-09-13: роли РД/ДМ теперь зафиксированы на магазине/регионе из реального набора
+// данных (см. prototype/backend/seed-data/), а не на прежних синтетических "Москва-Восток"/№404.
+const RD_REGION = "Регион 3";
+const DM_STORE_ID = "531";
 let screenStateOverride = {}; // п.5: один общий контрол в сайдбаре, не по экрану
 let sortState = {};
 let filterState = {};
@@ -804,6 +806,40 @@ function render() {
   (routes[base] || renderNetworkDashboard)();
 }
 
+// Этап 2/действие методологии (SCO/6133710853): ОД получает задачи, требующие внимания, сгруппированные
+// по региону/РД (делегирование вниз), РД — сразу по магазинам своего региона (действовать напрямую).
+// На карточке магазина (роль dm) не вызывается — там показывается список задач самого магазина (SCR-03).
+function renderAttentionTasksByRole(role, attentionTasks, storesList, allRegions) {
+  if (role === "dm") return "";
+  if (!attentionTasks.length) {
+    return `<div class="section"><h3>${role === "od" ? t("section.attention_tasks_by_region") : t("section.attention_tasks_by_store")}</h3>
+      <p style="color:var(--color-text-muted)">${t("task.none_attention")}</p></div>`;
+  }
+  const storeById = new Map(storesList.map(s => [s.id, s]));
+  const row = (label, count, storeIds) => `<div class="attention-task-row clickable-row" onclick="openAttentionTasks(${JSON.stringify(storeIds).replace(/"/g, "&quot;")})">
+    <span>${label}</span><span class="badge badge-warn">${count}</span></div>`;
+  if (role === "od") {
+    const byRegion = new Map();
+    for (const tk of attentionTasks) {
+      const region = storeById.get(tk.store_id)?.region || "—";
+      if (!byRegion.has(region)) byRegion.set(region, new Set());
+      byRegion.get(region).add(tk.store_id);
+    }
+    const directorByRegion = new Map(allRegions.map(r => [r.region, r.regionalDirector]));
+    const rows = [...byRegion.entries()].sort((a, b) => b[1].size - a[1].size);
+    return `<div class="section"><h3>${t("section.attention_tasks_by_region")}</h3><div class="card">
+      ${rows.map(([region, storeIds]) => row(`${region}${directorByRegion.get(region) ? " — " + directorByRegion.get(region) : ""}`,
+        [...storeIds].reduce((sum, id) => sum + attentionTasks.filter(tk => tk.store_id === id).length, 0), [...storeIds])).join("")}
+    </div></div>`;
+  }
+  const byStore = new Map();
+  for (const tk of attentionTasks) byStore.set(tk.store_id, (byStore.get(tk.store_id) || 0) + 1);
+  const rows = [...byStore.entries()].sort((a, b) => b[1] - a[1]);
+  return `<div class="section"><h3>${t("section.attention_tasks_by_store")}</h3><div class="card">
+    ${rows.map(([storeId, count]) => { const s = storeById.get(storeId); return row(s ? `${s.number} «${s.name}»` : storeId, count, [storeId]); }).join("")}
+  </div></div>`;
+}
+
 // ================= SCR-01: Дашборд сети (перестроен по п.7, п.8) =================
 function renderNetworkDashboard() {
   renderTopbar([{ label: currentRole === "od" ? t("nav.network") : `${scopeCrumb().label} — ${t("nav.network")}` }]); // п.2: не повторять "вся сеть"/"дашборд сети" дважды
@@ -858,12 +894,6 @@ function renderNetworkDashboard() {
       const scopedStoreIds = new Set(storesList.map(s => s.id));
       const now = Date.now();
       const attentionTasks = tasksList.filter(tk => scopedStoreIds.has(tk.store_id) && tk.status !== "done" && (tk.escalated || new Date(tk.due_at).getTime() < now));
-      const attentionByStore = new Map();
-      for (const tk of attentionTasks) attentionByStore.set(tk.store_id, (attentionByStore.get(tk.store_id) || 0) + 1);
-      const attentionTasksPointsAttr = JSON.stringify([...attentionByStore.entries()].map(([storeId, count]) => {
-        const s = storesList.find(x => x.id === storeId);
-        return { ts: s ? s.number : storeId, value: count };
-      })).replace(/"/g, "&quot;");
 
       // Потенциальная экономия = среднее время чека POS (часы) × потенциал чеков перевода на КСО
       // (шт, недельный) × ставка часа кассира — по каждому магазину отдельно (своя средняя скорость
@@ -912,14 +942,42 @@ function renderNetworkDashboard() {
         ])}
         </div>
 
-        <div class="section"><h4 class="kpi-group-label">${t("group.sco")}</h4>
-          <div class="grid grid-kpi">
+        <!-- Этап 1 методологии (SCO/6133710853): два top-level индикатора с цветовой индикацией —
+             все остальное (утилизация, скорость обслуживания, потенциал, экономия, рейтинг) убрано
+             с первого экрана в "Подробнее" ниже (см. правки 2026-09-13 по комментариям ПМ и разбору
+             сценария РД — "перегрузили дашборды", "производительность касс путает"). -->
+        <div class="section">
+          <div class="grid grid-kpi grid-kpi-hero">
             ${kpiCard({ label: t("kpi.availability"), value: availability.toFixed(0) + "%", sub: t("kpi.norm_prefix") + "90%",
               cls: kpiClassFor(availability, 90, "higher-better"), onClick: `openMetricChart(${scopeParamsAttr}, 'availability', '${t("kpi.availability")}')` })}
-            ${kpiCard({ label: t("kpi.utilization_sco"), value: scoUtil.toFixed(0) + "%", cls: "kpi-info",
-              onClick: `openCategoryBarChart(${scoUtilPointsAttr}, '${t("kpi.utilization_sco")}', '%')` })}
             ${kpiCard({ label: t("kpi.sco_share"), value: scoShare.toFixed(0) + "%", sub: t("kpi.norm_prefix") + "30%",
               cls: kpiClassFor(scoShare, 30, "higher-better"), onClick: `openMetricChart(${scopeParamsAttr}, 'sco_share', '${t("kpi.sco_share")}')` })}
+          </div>
+        </div>
+
+        <!-- Этап 2: таблица аутсайдеров сразу под hero-плашками (была в самом низу экрана). -->
+        <div class="section"><div class="section-header"><h2>${t("section.attention_problems")}</h2><a onclick="nav('outliers')">${t("section.all_outliers")}</a></div>
+          ${renderStoreQuickFilters("SCR-01")}
+          <div class="card">${renderSortableStoreTable(applyQuickFilter(attention.filter(s => !filterState.networkRegion || s.region === filterState.networkRegion), "SCR-01"), "SCR-01")}</div>
+        </div>
+
+        ${renderAttentionTasksByRole(currentRole, attentionTasks, storesList, allRegions)}
+
+        <div class="section-header more-details-header"><h2>${t("section.more_details")}</h2></div>
+
+        <div class="section"><div class="section-header"><h2>${t("section.regions_trend")}${periodLabel().toLowerCase()}</h2></div>
+          <div class="card"><table><thead><tr><th>${t("th.region")}</th><th>${t("th.stores_count")}</th><th>${t("th.regional_director")}</th><th class="mono">${t("th.availability")}</th><th class="mono">${t("th.trend")}</th><th class="mono">${t("th.sco_share")}</th><th class="mono">${t("th.trend")}</th></tr></thead>
+          <tbody>${regions.map(r => `<tr class="clickable-row region-row" onclick="filterState.networkRegion='${r.region}'; renderNetworkDashboard()">
+            <td>${r.region}</td><td class="mono">${r.storeCount}</td><td>${r.regionalDirector}</td>
+            <td class="mono">${r.availability_pct}%</td><td>${trendArrow(r.availability_trend, t("unit.pp"))}</td>
+            <td class="mono">${r.sco_share_pct}%</td><td>${trendArrow(r.sco_share_trend, t("unit.pp"))}</td>
+          </tr>`).join("")}</tbody></table></div>
+        </div>
+
+        <div class="section"><h4 class="kpi-group-label">${t("group.sco")}</h4>
+          <div class="grid grid-kpi">
+            ${kpiCard({ label: t("kpi.utilization_sco"), value: scoUtil.toFixed(0) + "%", cls: "kpi-info",
+              onClick: `openCategoryBarChart(${scoUtilPointsAttr}, '${t("kpi.utilization_sco")}', '%')` })}
             ${kpiCard({ label: t("kpi.sco_transfer_potential"), value: potential.toFixed(0) + "%", sub: t("kpi.sco_transfer_sub"), cls: "kpi-warn",
               onClick: `openMetricChart(${scopeParamsAttr}, 'sco_share', '${t("kpi.sco_transfer_potential")}', ${potentialRefAttr})` })}
             ${kpiCard({ label: t("kpi.service_speed_sco"), value: (scoSpeedRegs.length ? Math.round(scoSpeed) : "—") + " " + t("unit.sec"), cls: "kpi-info",
@@ -936,8 +994,6 @@ function renderNetworkDashboard() {
         </div>
         <div class="section"><h4 class="kpi-group-label">${t("group.other")}</h4>
           <div class="grid grid-kpi grid-kpi-compact">
-            ${kpiCard({ label: t("kpi.attention_tasks"), value: attentionTasks.length, cls: attentionTasks.length ? "kpi-warn" : "kpi-good",
-              onClick: `openAttentionTasks(${JSON.stringify([...scopedStoreIds]).replace(/"/g, "&quot;")})` })}
             ${kpiCard({ label: t("kpi.potential_savings"), value: formatCurrency(potentialSavings, currencyCode), sub: t("kpi.potential_savings_sub"), cls: "kpi-good",
               onClick: `openCategoryBarChart(${savingsPointsAttr}, '${t("kpi.potential_savings")}', ' ${t("currency." + currencyCode)}')` })}
             ${regionRanking ? rankingTileHtml(t("kpi.region_ranking"), regionRanking,
@@ -945,24 +1001,10 @@ function renderNetworkDashboard() {
           </div>
         </div>
 
-        <div class="section"><div class="section-header"><h2>${t("section.regions_trend")}${periodLabel().toLowerCase()}</h2></div>
-          <div class="card"><table><thead><tr><th>${t("th.region")}</th><th>${t("th.stores_count")}</th><th>${t("th.regional_director")}</th><th class="mono">${t("th.availability")}</th><th class="mono">${t("th.trend")}</th><th class="mono">${t("th.sco_share")}</th><th class="mono">${t("th.trend")}</th></tr></thead>
-          <tbody>${regions.map(r => `<tr class="clickable-row region-row" onclick="filterState.networkRegion='${r.region}'; renderNetworkDashboard()">
-            <td>${r.region}</td><td class="mono">${r.storeCount}</td><td>${r.regionalDirector}</td>
-            <td class="mono">${r.availability_pct}%</td><td>${trendArrow(r.availability_trend, t("unit.pp"))}</td>
-            <td class="mono">${r.sco_share_pct}%</td><td>${trendArrow(r.sco_share_trend, t("unit.pp"))}</td>
-          </tr>`).join("")}</tbody></table></div>
-        </div>
-
         <div class="section"><h3>${t("section.info_sco")} <span class="section-total mono">${t("section.total_prefix")} ${scoTotal} ${t("unit.hours")}</span></h3>
           <div class="card causes-compact">${scoCauses.map(c => barRow(causeDisplayName(c.cause) + (c.note ? " ⓘ" : ""), c.hours, scoTotal)).join("")}</div></div>
         <div class="section"><h3>${t("section.info_pos")} <span class="section-total mono">${t("section.total_prefix")} ${posTotal} ${t("unit.hours")}</span></h3>
           <div class="card causes-compact">${pos.causes.length ? pos.causes.map(c => barRow(causeDisplayName(c.cause), c.hours, posTotal)).join("") : `<p style="color:var(--color-text-muted)">${t("section.no_pos_causes")}</p>`}</div>
-        </div>
-
-        <div class="section"><div class="section-header"><h2>${t("section.attention_problems")}</h2><a onclick="nav('outliers')">${t("section.all_outliers")}</a></div>
-          ${renderStoreQuickFilters("SCR-01")}
-          <div class="card">${renderSortableStoreTable(applyQuickFilter(attention.filter(s => !filterState.networkRegion || s.region === filterState.networkRegion), "SCR-01"), "SCR-01")}</div>
         </div>`;
     });
 }
@@ -1060,6 +1102,67 @@ async function fetchStoreHourlyLoad(storeId) {
   else params.days = periodState.days || 7;
   return api.getHourlyLoadProfile(params);
 }
+// Этап 3/4 методологии (SCO/6133710853, кейс "магазин №404"): вместо голой таблицы — гипотеза причины
+// и предзаполненное действие. Считается на фронтенде из уже загруженных данных (store.registers,
+// hourlyLoad) без новых API-запросов. Причины простоя по конкретной кассе (сравнение с медианой по
+// сети, как в методологии) не разбиты в БД по магазину/кассе (см. план 2026-09-13) — намеренно не
+// изобретаем такое сравнение, диагноз строится только на том, что реально разбито по кассам:
+// registers.status/note/utilization_pct, и на часах перегрузки из hourlyLoad.
+const DIAGNOSIS_PROBLEM_STATUSES = new Set(["no_paper", "bank_error", "no_connection", "scale_error", "scanner_error", "printer_error", "off", "blocked_by_staff", "service_mode"]);
+function median(nums) {
+  if (!nums.length) return 0;
+  const s = [...nums].sort((a, b) => a - b);
+  const mid = (s.length - 1) / 2;
+  return (s[Math.floor(mid)] + s[Math.ceil(mid)]) / 2;
+}
+function renderDiagnosis(store, hourlyLoad) {
+  let body;
+  if (store.reason === "technical") {
+    // Технический фактор: находим кассу с проблемным статусом (не просто "нет связи, но доступна").
+    const problemRegs = store.registers.filter(r => DIAGNOSIS_PROBLEM_STATUSES.has(r.status) && !r.is_available);
+    const r = problemRegs.sort((a, b) => (b.note ? 1 : 0) - (a.note ? 1 : 0))[0];
+    if (r) {
+      const prefill = { registerId: r.id, title: t("diagnosis.technical_task_title", { id: r.id, status: registerLabel(r.status) }),
+        targetKpi: t("diagnosis.technical_task_kpi", { id: r.id }) };
+      body = `<p>${t("diagnosis.technical_hint", { id: r.id, status: registerLabel(r.status) })}${r.note ? " " + escapeHtml(r.note) : ""}</p>
+        <button class="btn btn-primary" onclick="openCreateTaskModal('${store.id}', ${JSON.stringify(prefill).replace(/"/g, "&quot;")})">${t("diagnosis.suggest_task")}</button>`;
+    } else {
+      body = `<p style="color:var(--color-text-muted)">${t("diagnosis.no_data_hint")}</p>`;
+    }
+  } else if (store.reason === "business") {
+    // Бизнес-фактор: ищем конкретную кассу SCO, которая технически доступна, но используется заметно
+    // меньше сестринских (кейс "SCO №4" методологии) — иначе показываем системную нехватку перевода
+    // потока с POS (Этап 4 методологии, "Целевой клиент КСО").
+    const scoRegs = store.registers.filter(r => r.type === "SCO");
+    const med = median(scoRegs.map(r => r.utilization_pct));
+    const anomaly = scoRegs.find(r => med > 0 && r.utilization_pct <= med / 2 && r.status === "available");
+    if (anomaly) {
+      const prefill = { registerId: anomaly.id, title: t("diagnosis.business_register_task_title", { id: anomaly.id }),
+        targetKpi: t("diagnosis.business_register_task_kpi", { id: anomaly.id }) };
+      body = `<p>${t("diagnosis.business_register_hint", { id: anomaly.id, util: anomaly.utilization_pct, median: Math.round(med) })}</p>
+        <button class="btn btn-primary" onclick="openCreateTaskModal('${store.id}', ${JSON.stringify(prefill).replace(/"/g, "&quot;")})">${t("diagnosis.suggest_task")}</button>`;
+    } else {
+      const prefill = { title: t("diagnosis.business_systemic_task_title"), targetKpi: t("diagnosis.business_systemic_task_kpi") };
+      body = `<p>${t("diagnosis.business_systemic_hint", { potential: store.potential_sco_pct, load: store.pos_load_week })}</p>
+        <button class="btn btn-primary" onclick="openCreateTaskModal('${store.id}', ${JSON.stringify(prefill).replace(/"/g, "&quot;")})">${t("diagnosis.suggest_task")}</button>`;
+    }
+  } else if (store.reason === "utilization") {
+    // Перегруз POS: те же часы перегрузки, что и на графике "Потоки по часам" ниже.
+    const points = hourlyLoad.points || [];
+    const totals = points.map(p => p.pos_checks + p.sco_checks);
+    const overloadHours = points.filter((p, i) => totals[i] > hourlyLoad.overloadThreshold).map(p => `${String(p.hour).padStart(2, "0")}:00`);
+    if (overloadHours.length) {
+      const prefill = { title: t("diagnosis.utilization_task_title"), targetKpi: t("diagnosis.utilization_task_kpi") };
+      body = `<p>${t("diagnosis.utilization_hint", { hours: overloadHours.join(", ") })}</p>
+        <button class="btn btn-primary" onclick="openCreateTaskModal('${store.id}', ${JSON.stringify(prefill).replace(/"/g, "&quot;")})">${t("diagnosis.suggest_task")}</button>`;
+    } else {
+      body = `<p style="color:var(--color-text-muted)">${t("diagnosis.no_data_hint")}</p>`;
+    }
+  } else {
+    body = `<p style="color:var(--color-text-muted)">${t("diagnosis.no_data_hint")}</p>`;
+  }
+  return `<div class="section"><div class="section-header"><h2>${t("section.diagnosis")}</h2></div><div class="card">${body}</div></div>`;
+}
 function renderStoreCard(storeId) {
   // п.2: не дублировать контекст — для ДМ показываем только "Магазин №X", для ОД/РД — единственная
   // ступень пути (уровень + название магазина), без повторения одного и того же контекста дважды.
@@ -1101,10 +1204,6 @@ function renderStoreCard(storeId) {
       const potential = store.sco_share_pct + store.potential_sco_pct;
       const potentialRefAttr = JSON.stringify({ value: potential, label: `${t("kpi.sco_transfer_potential")} = ${potential.toFixed(0)}%` }).replace(/"/g, "&quot;");
 
-      // Задачи, требующие внимания — просрочены (due_at в прошлом) или эскалированы, еще не выполнены.
-      const now = Date.now();
-      const attentionTasks = tasks.filter(tk => tk.status !== "done" && (tk.escalated || new Date(tk.due_at).getTime() < now));
-
       // Рейтинг магазина среди магазинов ТОГО ЖЕ региона (не сети целиком) — композитный балл:
       // равновзвешенное среднее доступности/утилизации/доли чеков КСО, business-rules-and-formulas.md
       // "14. Рейтинг региона/магазина" (не подтверждено Product Manager).
@@ -1118,6 +1217,24 @@ function renderStoreCard(storeId) {
       const storeRankedAttr = JSON.stringify(ranked).replace(/"/g, "&quot;");
 
       return `
+        <!-- Этап 1: hero-плашки + бейдж категории аутсайдера (раньше не показывался явно на карточке). -->
+        <div class="section">
+          <div class="grid grid-kpi grid-kpi-hero">
+            ${kpiCard({ label: t("kpi.availability"), value: store.availability_pct + "%", sub: t("kpi.norm_prefix") + s.availability_norm + "%",
+              cls: kpiClassFor(store.availability_pct, s.availability_norm, "higher-better"), onClick: `openMetricChart(${scopeParamsAttr}, 'availability', '${t("kpi.availability")}')` })}
+            ${kpiCard({ label: t("kpi.sco_share"), value: store.sco_share_pct + "%", sub: t("kpi.norm_prefix") + s.sco_share_norm + "%",
+              cls: kpiClassFor(store.sco_share_pct, s.sco_share_norm, "higher-better"), onClick: `openMetricChart(${scopeParamsAttr}, 'sco_share', '${t("kpi.sco_share")}')` })}
+          </div>
+          ${store.outlier ? `<p style="margin-top:0"><span class="badge badge-warn">${outlierLabel(store.reason)}</span></p>` : ""}
+        </div>
+
+        ${store.outlier ? renderDiagnosis(store, hourlyLoad) : ""}
+
+        <div class="section"><div class="section-header"><h2>${t("section.store_tasks")}</h2>${currentRole !== "dm" ? `<button class="btn btn-primary" onclick="openCreateTaskModal('${store.id}')">${t("action.create_task")}</button>` : ""}</div>
+          <div class="card">${tasks.length ? tasks.map(taskRow).join("") : `<p style="color:var(--color-text-muted)">${t("store.no_active_tasks")}</p>`}</div></div>
+
+        <div class="section-header more-details-header"><h2>${t("section.more_details")}</h2></div>
+
         <div class="section">
         ${bigInfoTile([
           { label: t("kpi.pos_count"), value: Math.round(counts.pos_count), trend: counts.pos_count_trend, trendDecimals: 0,
@@ -1129,12 +1246,8 @@ function renderStoreCard(storeId) {
 
         <div class="section"><h4 class="kpi-group-label">${t("group.sco")}</h4>
           <div class="grid grid-kpi">
-            ${kpiCard({ label: t("kpi.availability"), value: store.availability_pct + "%", sub: t("kpi.norm_prefix") + s.availability_norm + "%",
-              cls: kpiClassFor(store.availability_pct, s.availability_norm, "higher-better"), onClick: `openMetricChart(${scopeParamsAttr}, 'availability', '${t("kpi.availability")}')` })}
             ${kpiCard({ label: t("kpi.utilization_sco"), value: scoUtil.toFixed(0) + "%", cls: "kpi-info",
               onClick: `openCategoryBarChart(${scoUtilPointsAttr}, '${t("kpi.utilization_sco")}', '%')` })}
-            ${kpiCard({ label: t("kpi.sco_share"), value: store.sco_share_pct + "%", sub: t("kpi.norm_prefix") + s.sco_share_norm + "%",
-              cls: kpiClassFor(store.sco_share_pct, s.sco_share_norm, "higher-better"), onClick: `openMetricChart(${scopeParamsAttr}, 'sco_share', '${t("kpi.sco_share")}')` })}
             ${kpiCard({ label: t("kpi.sco_transfer_potential"), value: potential.toFixed(0) + "%", sub: t("kpi.sco_transfer_sub"), cls: "kpi-warn",
               onClick: `openMetricChart(${scopeParamsAttr}, 'sco_share', '${t("kpi.sco_transfer_potential")}', ${potentialRefAttr})` })}
             ${kpiCard({ label: t("kpi.service_speed_sco"), value: (scoSpeedRegs.length ? Math.round(scoSpeed) : "—") + " " + t("unit.sec"), cls: "kpi-info",
@@ -1155,8 +1268,6 @@ function renderStoreCard(storeId) {
         </div>
         <div class="section"><h4 class="kpi-group-label">${t("group.other")}</h4>
           <div class="grid grid-kpi grid-kpi-compact">
-            ${kpiCard({ label: t("kpi.attention_tasks"), value: attentionTasks.length, cls: attentionTasks.length ? "kpi-warn" : "kpi-good",
-              onClick: `openAttentionTasks(${JSON.stringify([store.id]).replace(/"/g, "&quot;")})` })}
             ${rankingTileHtml(t("kpi.store_ranking"), storeRanking,
               `openRankingTable(${storeRankedAttr}, '${t("section.ranking_table_stores")}', '${t("th.store")}')`)}
           </div>
@@ -1176,9 +1287,7 @@ function renderStoreCard(storeId) {
             <td class="mono">${r.p95_seconds ?? "—"}</td><td class="mono">${r.utilization_pct}%</td></tr>
             ${r.note ? `<tr><td></td><td colspan="4" style="color:var(--color-text-muted);font-size:12px;padding-top:0">${r.note}</td></tr>` : ""}`).join("")}</tbody></table>
           <p style="color:var(--color-text-muted);font-size:12px;margin-top:8px">${t("store.register_click_hint")}</p>
-        </div></div>
-        <div class="section"><div class="section-header"><h2>${t("section.store_tasks")}</h2>${currentRole !== "dm" ? `<button class="btn btn-primary" onclick="openCreateTaskModal('${store.id}')">${t("action.create_task")}</button>` : ""}</div>
-          <div class="card">${tasks.length ? tasks.map(taskRow).join("") : `<p style="color:var(--color-text-muted)">${t("store.no_active_tasks")}</p>`}</div></div>`;
+        </div></div>`;
     });
 }
 function taskRow(tk) {
@@ -1358,7 +1467,7 @@ renderTasks = function () { _origRenderTasks(); setTimeout(initKanbanDnD, 50); }
 
 // --- Создание задачи: переработанная форма (п.15) + исправлен баг (п.16) ---
 let taskFormStores = null;
-async function openCreateTaskModal(storeId) {
+async function openCreateTaskModal(storeId, prefill = {}) {
   if (!taskFormStores) taskFormStores = await api.getStores({});
   const preselected = storeId || taskFormStores[0].id;
   const store = taskFormStores.find(s => s.id === preselected);
@@ -1371,11 +1480,11 @@ async function openCreateTaskModal(storeId) {
         <div class="field"><label>${t("task.form.store")}</label><select id="tf-store" onchange="onTaskFormStoreChange()">
           ${taskFormStores.map(s => `<option value="${s.id}" ${s.id === preselected ? "selected" : ""}>${s.number} «${s.name}»</option>`).join("")}</select></div>
         <div class="field"><label>${t("task.form.register")}</label><select id="tf-register"><option value="">${t("task.form.register_none")}</option>
-          ${registers.map(r => `<option value="${r.id}">${r.id} (${r.type})</option>`).join("")}</select></div>
+          ${registers.map(r => `<option value="${r.id}" ${prefill.registerId === r.id ? "selected" : ""}>${r.id} (${r.type})</option>`).join("")}</select></div>
       </div>
       <div class="field"><label>${t("task.form.assignee")}</label><input type="text" id="tf-assignee" value="${store ? store.director_name + " (директор магазина " + store.number + ")" : ""}" readonly style="background:var(--color-bg)"></div>
-      <div class="field"><label>${t("task.form.title")}</label><input type="text" id="tf-title" placeholder="${t("task.form.title_placeholder")}"></div>
-      <div class="field"><label>${t("task.form.kpi")}</label><input type="text" id="tf-kpi" placeholder="${t("task.form.kpi_placeholder")}">
+      <div class="field"><label>${t("task.form.title")}</label><input type="text" id="tf-title" placeholder="${t("task.form.title_placeholder")}" value="${escapeHtml(prefill.title || "")}"></div>
+      <div class="field"><label>${t("task.form.kpi")}</label><input type="text" id="tf-kpi" placeholder="${t("task.form.kpi_placeholder")}" value="${escapeHtml(prefill.targetKpi || "")}">
         <div class="form-help">${t("task.form.kpi_help")}</div></div>
       <div class="field"><label>${t("task.form.due")}</label><input type="datetime-local" id="tf-due" value="${nowPlus(60)}">
         <div class="quick-time-btns"><button type="button" onclick="setTaskDueQuick(5)">${t("task.form.quick5")}</button><button type="button" onclick="setTaskDueQuick(30)">${t("task.form.quick30")}</button><button type="button" onclick="setTaskDueQuick(60)">${t("task.form.quick60")}</button></div></div>
@@ -1481,7 +1590,7 @@ function chatBubble(m) {
   return `<div class="chat-msg assistant"><p><strong>${a.conclusion}</strong></p>${a.facts.map(f => `<div class="fact-card">• ${f}</div>`).join("")}
     <p style="margin-top:8px">${t("advisor.hypothesis")} <strong>${a.hypothesis.name}</strong> (${t("advisor.confidence")} ${(a.hypothesis.confidence * 100).toFixed(0)}%)</p>
     ${a.recommendations.length ? `<p>${t("advisor.recommendations")}</p><ul>${a.recommendations.map(r => `<li>${r}</li>`).join("")}</ul>` : ""}
-    <p><a onclick="nav('store/404')">${t("advisor.open_store_example")}</a></p></div>`;
+    <p><a onclick="nav('store/531')">${t("advisor.open_store_example")}</a></p></div>`;
 }
 function askAdvisorFromInput() { askAdvisor(el("chat-input").value); }
 async function askAdvisor(question) {
