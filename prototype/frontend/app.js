@@ -1118,24 +1118,32 @@ function median(nums) {
 function renderDiagnosis(store, hourlyLoad) {
   let body;
   if (store.reason === "technical") {
-    // Технический фактор: находим кассу с проблемным статусом (не просто "нет связи, но доступна").
-    const problemRegs = store.registers.filter(r => DIAGNOSIS_PROBLEM_STATUSES.has(r.status) && !r.is_available);
-    const r = problemRegs.sort((a, b) => (b.note ? 1 : 0) - (a.note ? 1 : 0))[0];
-    if (r) {
-      const prefill = { registerId: r.id, title: t("diagnosis.technical_task_title", { id: r.id, status: registerLabel(r.status) }),
-        targetKpi: t("diagnosis.technical_task_kpi", { id: r.id }) };
-      body = `<p>${t("diagnosis.technical_hint", { id: r.id, status: registerLabel(r.status) })}${r.note ? " " + escapeHtml(r.note) : ""}</p>
+    // Технический фактор: касса без телеметрии 30+ дней (is_stale) — самый однозначный сигнал,
+    // проверяем в первую очередь; иначе ищем кассу с проблемным статусом (не просто "нет связи, но
+    // доступна" — offline_but_available сюда не попадает).
+    const staleR = store.registers.filter(r => r.is_stale).sort((a, b) => b.stale_days - a.stale_days)[0];
+    const problemR = store.registers.filter(r => !r.is_stale && DIAGNOSIS_PROBLEM_STATUSES.has(r.status) && !r.is_available)
+      .sort((a, b) => (b.note ? 1 : 0) - (a.note ? 1 : 0))[0];
+    if (staleR) {
+      const prefill = { registerId: staleR.id, title: t("diagnosis.stale_task_title", { id: staleR.id, days: staleR.stale_days }),
+        targetKpi: t("diagnosis.stale_task_kpi", { id: staleR.id }) };
+      body = `<p>${t("diagnosis.stale_hint", { id: staleR.id, days: staleR.stale_days })}</p>
+        <button class="btn btn-primary" onclick="openCreateTaskModal('${store.id}', ${JSON.stringify(prefill).replace(/"/g, "&quot;")})">${t("diagnosis.suggest_task")}</button>`;
+    } else if (problemR) {
+      const prefill = { registerId: problemR.id, title: t("diagnosis.technical_task_title", { id: problemR.id, status: registerLabel(problemR.status) }),
+        targetKpi: t("diagnosis.technical_task_kpi", { id: problemR.id }) };
+      body = `<p>${t("diagnosis.technical_hint", { id: problemR.id, status: registerLabel(problemR.status) })}${problemR.note ? " " + escapeHtml(problemR.note) : ""}</p>
         <button class="btn btn-primary" onclick="openCreateTaskModal('${store.id}', ${JSON.stringify(prefill).replace(/"/g, "&quot;")})">${t("diagnosis.suggest_task")}</button>`;
     } else {
       body = `<p style="color:var(--color-text-muted)">${t("diagnosis.no_data_hint")}</p>`;
     }
   } else if (store.reason === "business") {
-    // Бизнес-фактор: ищем конкретную кассу SCO, которая технически доступна, но используется заметно
-    // меньше сестринских (кейс "SCO №4" методологии) — иначе показываем системную нехватку перевода
-    // потока с POS (Этап 4 методологии, "Целевой клиент КСО").
+    // Бизнес-фактор: ищем конкретную кассу SCO, которая технически доступна и в строю (не stale), но
+    // используется заметно меньше сестринских (кейс "SCO №4" методологии) — иначе показываем
+    // системную нехватку перевода потока с POS (Этап 4 методологии, "Целевой клиент КСО").
     const scoRegs = store.registers.filter(r => r.type === "SCO");
     const med = median(scoRegs.map(r => r.utilization_pct));
-    const anomaly = scoRegs.find(r => med > 0 && r.utilization_pct <= med / 2 && r.status === "available");
+    const anomaly = scoRegs.find(r => med > 0 && r.utilization_pct <= med / 2 && r.status === "available" && !r.is_stale);
     if (anomaly) {
       const prefill = { registerId: anomaly.id, title: t("diagnosis.business_register_task_title", { id: anomaly.id }),
         targetKpi: t("diagnosis.business_register_task_kpi", { id: anomaly.id }) };
