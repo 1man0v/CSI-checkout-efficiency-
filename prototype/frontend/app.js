@@ -463,8 +463,14 @@ function renderChart({ points, trendPoints, refValue, refLabel, formatX, kind = 
 // способность КСО при текущем числе задействованных терминалов; красная пунктирная ступенчатая
 // линия — пропускная способность открытых POS; красная точка — час, где открытых POS больше, чем
 // реально требуется под остаток спроса после КСО (is_excess_pos, посчитано на бэкенде).
-function renderHourlyLoadChart(points) {
+function renderHourlyLoadChart(hourlyLoad) {
+  const points = hourlyLoad.points;
   if (!points || !points.length) return `<p style="color:var(--color-text-muted)">${t("chart.no_data")}</p>`;
+  // Явная подпись периода (2026-09-13, запрос пользователя "за какой день построен график") —
+  // singleDay/dateFrom/dateTo приходят с бэкенда, чтобы фронт не дублировал логику выбора дат.
+  const periodNote = hourlyLoad.singleDay
+    ? t("chart.hourly_load_single_day", { date: formatDateShort(hourlyLoad.dateFrom) })
+    : t("chart.hourly_load_avg_range", { from: formatDateShort(hourlyLoad.dateFrom), to: formatDateShort(hourlyLoad.dateTo) });
   const totals = points.map(p => p.pos_checks + p.sco_checks);
   const dataMax = Math.max(...totals, ...points.map(p => p.pos_capacity), ...points.map(p => p.sco_throughput), 1);
   const ticks = niceTicks(0, dataMax, 4);
@@ -505,24 +511,34 @@ function renderHourlyLoadChart(points) {
 
   const excessHours = points.filter(p => p.is_excess_pos).map(p => `${String(p.hour).padStart(2, "0")}:00`);
 
-  return `<div class="chart-svg-wrap"><svg viewBox="0 0 ${width} ${height}" width="100%" style="max-width:${width}px">
-    ${yGrid}
-    <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${padT + plotH}" stroke="var(--color-border)" />
-    <line x1="${padL}" y1="${padT + plotH}" x2="${width - padR}" y2="${padT + plotH}" stroke="var(--color-border)" />
-    ${bars}
-    <path d="${scoLine}" fill="none" stroke="var(--color-blue)" stroke-width="2" />
-    <path d="${posLine}" fill="none" stroke="var(--color-red)" stroke-width="2" stroke-dasharray="6 4" />
-    ${excessDots}
-    ${xLabels}
-  </svg></div>
-  <div class="chart-legend-row">
-    <span class="legend-item"><span class="swatch" style="background:var(--color-yellow)"></span>${t("chart.legend_pos")}</span>
-    <span class="legend-item"><span class="swatch" style="background:var(--color-green)"></span>${t("chart.legend_sco")}</span>
-    <span class="legend-item"><span class="swatch-line" style="background:var(--color-blue)"></span>${t("chart.legend_sco_capacity")}</span>
-    <span class="legend-item"><span class="swatch-line" style="background:var(--color-red)"></span>${t("chart.legend_pos_capacity")}</span>
-    <span class="legend-item"><span class="swatch" style="background:var(--color-red);border-radius:50%"></span>${t("chart.legend_excess")}</span>
-  </div>
-  <p style="font-size:12px;color:var(--color-text-muted);margin-top:6px">${excessHours.length ? t("chart.hourly_load_overload_note") + " " + excessHours.join(", ") : t("chart.hourly_load_no_overload")}</p>`;
+  return `<p style="font-size:12px;color:var(--color-text-muted);margin-top:0">${periodNote}</p>
+  <div class="hourly-load-layout">
+    <div class="hourly-load-main">
+      <div class="chart-svg-wrap"><svg viewBox="0 0 ${width} ${height}" width="100%" style="max-width:${width}px">
+        ${yGrid}
+        <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${padT + plotH}" stroke="var(--color-border)" />
+        <line x1="${padL}" y1="${padT + plotH}" x2="${width - padR}" y2="${padT + plotH}" stroke="var(--color-border)" />
+        ${bars}
+        <path d="${scoLine}" fill="none" stroke="var(--color-blue)" stroke-width="2" />
+        <path d="${posLine}" fill="none" stroke="var(--color-red)" stroke-width="2" stroke-dasharray="6 4" />
+        ${excessDots}
+        ${xLabels}
+      </svg></div>
+      <div class="chart-legend-row">
+        <span class="legend-item"><span class="swatch" style="background:var(--color-yellow)"></span>${t("chart.legend_pos")}</span>
+        <span class="legend-item"><span class="swatch" style="background:var(--color-green)"></span>${t("chart.legend_sco")}</span>
+        <span class="legend-item"><span class="swatch-line" style="background:var(--color-blue)"></span>${t("chart.legend_sco_capacity")}</span>
+        <span class="legend-item"><span class="swatch-line" style="background:var(--color-red)"></span>${t("chart.legend_pos_capacity")}</span>
+        <span class="legend-item"><span class="swatch" style="background:var(--color-red);border-radius:50%"></span>${t("chart.legend_excess")}</span>
+      </div>
+    </div>
+    <div class="hourly-load-side">
+      <h5>${t("chart.legend_excess")}</h5>
+      ${excessHours.length
+        ? `<ul>${excessHours.map(h => `<li>${h}</li>`).join("")}</ul>`
+        : `<p style="font-size:12px;color:var(--color-text-muted);margin:0">${t("chart.hourly_load_no_overload")}</p>`}
+    </div>
+  </div>`;
 }
 function formatHourLabel(ts) { const d = new Date(ts); return String(d.getHours()).padStart(2, "0") + ":00 " + String(d.getDate()).padStart(2, "0") + "." + String(d.getMonth() + 1).padStart(2, "0"); }
 function formatDayLabel(ts) { const d = new Date(ts); return String(d.getDate()).padStart(2, "0") + "." + String(d.getMonth() + 1).padStart(2, "0"); }
@@ -1316,7 +1332,7 @@ function renderStoreCard(storeId) {
 
         <div class="section"><div class="section-header"><h2>${t("kpi.hourly_load")}</h2></div>
           <div class="card"><p style="color:var(--color-text-muted);font-size:12px;margin-top:0">${t("kpi.hourly_load_sub")}</p>
-            ${renderHourlyLoadChart(hourlyLoad.points)}</div>
+            ${renderHourlyLoadChart(hourlyLoad)}</div>
         </div>
 
         <p style="color:var(--color-text-muted);font-size:12px">${t("store.drilldown_hint")}${periodLabel().toLowerCase()}.</p>

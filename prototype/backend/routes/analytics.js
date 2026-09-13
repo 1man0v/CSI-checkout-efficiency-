@@ -299,7 +299,8 @@ function hourlyLoadProfile(db, query) {
   }
   return {
     points, openingHour: store.opening_hour, closingHour: store.closing_hour,
-    posCapacityPerKassa: Math.round(posCapacityPerKassa), scoCapacityPerKassa: Math.round(scoCapacityPerKassa)
+    posCapacityPerKassa: Math.round(posCapacityPerKassa), scoCapacityPerKassa: Math.round(scoCapacityPerKassa),
+    dateFrom, dateTo, singleDay
   };
 }
 

@@ -415,6 +415,17 @@ tr.row-stale:hover { opacity: 0.8; }
 .chart-legend-row { display: flex; gap: var(--space-4); font-size: 12px; color: var(--color-text-muted); margin-top: var(--space-2); }
 .chart-legend-row .legend-item { display: flex; align-items: center; gap: 4px; }
 .chart-legend-row .swatch-line { width: 14px; height: 2px; display: inline-block; }
+/* Раньше отсутствовало — в этом контексте (не внутри .legend) плашки цвета для баров/точки не имели
+   ни размера, ни формы и были не видны (баг найден пользователем 2026-09-13: "нет маркировки"). */
+.chart-legend-row .swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+
+/* ---------- "Загрузка кассовой линии": график + боковая панель с избытком POS ---------- */
+.hourly-load-layout { display: flex; gap: var(--space-5); align-items: flex-start; flex-wrap: wrap; }
+.hourly-load-main { flex: 3 1 680px; min-width: 0; }
+.hourly-load-side { flex: 1 1 160px; min-width: 160px; }
+.hourly-load-side h5 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.03em; color: var(--color-text-muted); margin: 0 0 var(--space-2); }
+.hourly-load-side ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.hourly-load-side li { font-family: var(--font-mono); font-size: 13px; color: var(--color-red); }
 
 /* Сводка ключевых показателей под графиком в drawer'е — приглушенно-серая по умолчанию (чтобы не
    отвлекать от основного графика), при наведении на плашку показывает реальный статусный цвет
