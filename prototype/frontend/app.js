@@ -1138,22 +1138,24 @@ function renderDiagnosis(store, hourlyLoad) {
       body = `<p style="color:var(--color-text-muted)">${t("diagnosis.no_data_hint")}</p>`;
     }
   } else if (store.reason === "business") {
-    // Бизнес-фактор: ищем конкретную кассу SCO, которая технически доступна и в строю (не stale), но
-    // используется заметно меньше сестринских (кейс "SCO №4" методологии) — иначе показываем
-    // системную нехватку перевода потока с POS (Этап 4 методологии, "Целевой клиент КСО").
+    // Бизнес-фактор: методология (Этап 4, кейс "SCO №4") показывает ОБА эти анализа вместе, а не
+    // взаимоисключающе — сначала масштаб упущенной эффективности по всему магазину ("целевой клиент
+    // КСО на POS"), затем, если есть, конкретную кассу SCO, которая технически доступна и в строю
+    // (не stale), но используется заметно меньше сестринских — как ЧАСТЬ причины системного разрыва,
+    // не вместо нее (даже если чинить только одну кассу, до норматива это не дотянет само по себе).
+    const potentialPrefill = { title: t("diagnosis.business_systemic_task_title"), targetKpi: t("diagnosis.business_systemic_task_kpi") };
+    const blocks = [`<p>${t("diagnosis.business_potential_hint", { share: store.sco_share_pct, potential: store.potential_sco_pct, load: store.pos_load_week })}</p>
+      <button class="btn btn-primary" onclick="openCreateTaskModal('${store.id}', ${JSON.stringify(potentialPrefill).replace(/"/g, "&quot;")})">${t("diagnosis.suggest_task")}</button>`];
     const scoRegs = store.registers.filter(r => r.type === "SCO");
     const med = median(scoRegs.map(r => r.utilization_pct));
     const anomaly = scoRegs.find(r => med > 0 && r.utilization_pct <= med / 2 && r.status === "available" && !r.is_stale);
     if (anomaly) {
       const prefill = { registerId: anomaly.id, title: t("diagnosis.business_register_task_title", { id: anomaly.id }),
         targetKpi: t("diagnosis.business_register_task_kpi", { id: anomaly.id }) };
-      body = `<p>${t("diagnosis.business_register_hint", { id: anomaly.id, util: anomaly.utilization_pct, median: Math.round(med) })}</p>
-        <button class="btn btn-primary" onclick="openCreateTaskModal('${store.id}', ${JSON.stringify(prefill).replace(/"/g, "&quot;")})">${t("diagnosis.suggest_task")}</button>`;
-    } else {
-      const prefill = { title: t("diagnosis.business_systemic_task_title"), targetKpi: t("diagnosis.business_systemic_task_kpi") };
-      body = `<p>${t("diagnosis.business_systemic_hint", { potential: store.potential_sco_pct, load: store.pos_load_week })}</p>
-        <button class="btn btn-primary" onclick="openCreateTaskModal('${store.id}', ${JSON.stringify(prefill).replace(/"/g, "&quot;")})">${t("diagnosis.suggest_task")}</button>`;
+      blocks.push(`<p style="margin-top:16px;padding-top:16px;border-top:1px solid var(--color-border)">${t("diagnosis.business_register_hint", { id: anomaly.id, util: anomaly.utilization_pct, median: Math.round(med) })}</p>
+        <button class="btn btn-primary" onclick="openCreateTaskModal('${store.id}', ${JSON.stringify(prefill).replace(/"/g, "&quot;")})">${t("diagnosis.suggest_task")}</button>`);
     }
+    body = blocks.join("");
   } else if (store.reason === "utilization") {
     // Перегруз POS: те же часы перегрузки, что и на графике "Потоки по часам" ниже.
     const points = hourlyLoad.points || [];
