@@ -227,17 +227,31 @@ function hourlySeries(db, query) {
   return { points, trend, p95 };
 }
 
-// GET /api/analytics/hourly-load?storeId=&days=7&from=&to= — плашка "график потоков по часам"
-// на карточке магазина (добавлено 2026-07-22): распределение чеков POS+SCO по часам работы
-// магазина. Если выбран один конкретный день (from === to) — фактические значения этого дня;
-// если период длиннее — среднее по каждому часу дня за весь период (business-rules-and-formulas.md,
-// "15. График потоков по часам и порог перегрузки"). Часы вне [opening_hour; closing_hour) магазина
-// не возвращаются — вне часов работы нагрузка не показательна.
+// GET /api/analytics/hourly-load?storeId=&days=7&from=&to= — плашка "Загрузка кассовой линии" на
+// карточке магазина. Переписано 2026-09-13 по спецификации из
+// /Users/aimanov/Downloads/sco capacity/prompt_dashboard_sco.md (формула "residual demand" — раздел
+// "пропускная способность POS с учетом КСО"): пропускная способность POS считается по остатку спроса
+// после того, как КСО забрала свою часть потока, а не изолированно. Если выбран один конкретный день
+// (from === to) — фактические значения этого дня; если период длиннее — среднее по каждому часу дня
+// за период. Часы вне [opening_hour; closing_hour) магазина не возвращаются.
+//
+// Входные величины по насыщенным интервалам заменены на среднее время чека по кассам магазина
+// (registers.avg_seconds) — упрощенный вариант формулы (без регрессии время_чека = A + B×N_товаров,
+// см. пометку в исходном промте — переходить на нее, когда будет накоплено достаточно транзакций).
+// targetUtilization = 0.7 — та же константа, что уже использовалась для порога перегрузки ранее.
+const TARGET_UTILIZATION = 0.7;
 function hourlyLoadProfile(db, query) {
   const store = db.prepare("SELECT * FROM stores WHERE id = ?").get(query.storeId);
-  if (!store) return { points: [], openingHour: 8, closingHour: 22, overloadThreshold: 0 };
-  const settings = db.prepare("SELECT * FROM settings_network WHERE id = 1").get();
-  const rows = db.prepare("SELECT ts, pos_checks, sco_checks FROM hourly_metrics WHERE store_id = ? ORDER BY ts").all(store.id);
+  if (!store) return { points: [], openingHour: 8, closingHour: 22, posCapacityPerKassa: 0, scoCapacityPerKassa: 0 };
+  const registers = db.prepare("SELECT type, avg_seconds FROM registers WHERE store_id = ? AND avg_seconds IS NOT NULL").all(store.id);
+  const avgSeconds = type => { const list = registers.filter(r => r.type === type).map(r => r.avg_seconds); return list.length ? avg(list) : 0; };
+  // Эффективная пропускная способность ОДНОЙ кассы/терминала данного типа, чек/час, с учетом целевой
+  // загрузки 70% (не 100% — иначе на графике никогда не было бы визуального "запаса" до предела).
+  const posCapacityPerKassa = avgSeconds("POS") ? (3600 / avgSeconds("POS")) * TARGET_UTILIZATION : 0;
+  const scoCapacityPerKassa = avgSeconds("SCO") ? (3600 / avgSeconds("SCO")) * TARGET_UTILIZATION : 0;
+
+  const rows = db.prepare(`SELECT ts, pos_checks, sco_checks, pos_potential_checks, pos_open_count, sco_open_count
+    FROM hourly_metrics WHERE store_id = ? ORDER BY ts`).all(store.id);
   const allDates = [...new Set(rows.map(r => r.ts.slice(0, 10)))].sort();
   let dateFrom, dateTo;
   if (query.from && query.to) { dateFrom = query.from; dateTo = query.to; }
@@ -254,17 +268,39 @@ function hourlyLoadProfile(db, query) {
     if (!byHour.has(hour)) byHour.set(hour, []);
     byHour.get(hour).push(r);
   }
+  const pick = (list, field) => list.length ? (singleDay ? list[list.length - 1][field] : avg(list.map(r => r[field]))) : 0;
   const points = [];
   for (let hour = store.opening_hour; hour < store.closing_hour; hour++) {
     const list = byHour.get(hour) || [];
-    const pos = list.length ? (singleDay ? list[list.length - 1].pos_checks : avg(list.map(r => r.pos_checks))) : 0;
-    const sco = list.length ? (singleDay ? list[list.length - 1].sco_checks : avg(list.map(r => r.sco_checks))) : 0;
-    points.push({ hour, pos_checks: Math.round(pos), sco_checks: Math.round(sco) });
+    const posChecks = Math.round(pick(list, "pos_checks"));
+    const scoChecks = Math.round(pick(list, "sco_checks"));
+    const posPotential = Math.round(pick(list, "pos_potential_checks"));
+    const posOpenCount = Math.round(pick(list, "pos_open_count"));
+    const scoOpenCount = Math.round(pick(list, "sco_open_count"));
+
+    const totalDemand = posChecks + scoChecks;
+    const scoThroughput = Math.round(scoOpenCount * scoCapacityPerKassa);
+    const residualForPos = Math.max(0, totalDemand - scoThroughput);
+    const requiredKassCount = posCapacityPerKassa > 0 ? Math.ceil(residualForPos / posCapacityPerKassa) : 0;
+    const posCapacity = Math.round(posOpenCount * posCapacityPerKassa);
+    const isExcessPos = posOpenCount > requiredKassCount;
+    // Обратный случай — открытых POS МЕНЬШЕ, чем требуется под остаток спроса после КСО: риск очередей
+    // (в отличие от isExcessPos — переизбытка касс, спец нигде явно не вводит отдельный флаг для этого
+    // случая, но он нужен отдельно от isExcessPos для честной диагностики магазинов-аутсайдеров по
+    // причине "utilization" — там речь именно про перегрузку, а не про избыток персонала).
+    const isUnderstaffed = posOpenCount < requiredKassCount;
+
+    points.push({
+      hour, pos_checks: posChecks, sco_checks: scoChecks, pos_potential_checks: posPotential,
+      pos_open_count: posOpenCount, sco_open_count: scoOpenCount,
+      pos_capacity: posCapacity, sco_throughput: scoThroughput,
+      required_kass_count: requiredKassCount, is_excess_pos: isExcessPos, is_understaffed: isUnderstaffed
+    });
   }
-  const hoursOpen = Math.max(1, store.closing_hour - store.opening_hour);
-  const hourlyNorm = (settings.pos_weekly_norm + settings.sco_weekly_norm) / 7 / hoursOpen;
-  const overloadThreshold = Math.round(hourlyNorm * 0.7);
-  return { points, openingHour: store.opening_hour, closingHour: store.closing_hour, overloadThreshold };
+  return {
+    points, openingHour: store.opening_hour, closingHour: store.closing_hour,
+    posCapacityPerKassa: Math.round(posCapacityPerKassa), scoCapacityPerKassa: Math.round(scoCapacityPerKassa)
+  };
 }
 
 // GET /api/registers/:id/history

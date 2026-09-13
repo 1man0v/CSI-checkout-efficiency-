@@ -148,6 +148,11 @@ CREATE TABLE IF NOT EXISTS daily_summary (
 );
 
 -- Почасовые точки за последние 7 дней — для графиков при клике на KPI-плашку (пункт 11).
+-- pos_potential_checks/pos_open_count/sco_open_count (добавлено 2026-09-13) — из реального экспорта
+-- чеков (см. seed-data/hourly-capacity-2026-03.json), для графика "Загрузка кассовой линии" на карточке
+-- магазина: pos_potential_checks — чеки POS за этот час, подходящие под перехват КСО (≤10 товаров,
+-- без нала); pos_open_count/sco_open_count — число различных касс данного типа, на которых был хотя бы
+-- один чек в этот час (прокси "открыта/используется", отдельного события открытия смены в источнике нет).
 CREATE TABLE IF NOT EXISTS hourly_metrics (
   store_id TEXT NOT NULL REFERENCES stores(id),
   ts TEXT NOT NULL,
@@ -156,6 +161,9 @@ CREATE TABLE IF NOT EXISTS hourly_metrics (
   pos_availability_pct REAL NOT NULL DEFAULT 100,
   sco_checks INTEGER NOT NULL DEFAULT 0,
   pos_checks INTEGER NOT NULL DEFAULT 0,
+  pos_potential_checks INTEGER NOT NULL DEFAULT 0,
+  pos_open_count INTEGER NOT NULL DEFAULT 0,
+  sco_open_count INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (store_id, ts)
 );
 

@@ -196,7 +196,7 @@ label { display: block; font-size: 12px; color: var(--color-text-muted); margin-
 
 /* Большая плашка ОД "Общая информация" (количество магазинов/POS/КСО/аутсайдеров) — одна широкая
    карточка с несколькими под-метриками внутри, разделенными вертикальными линиями. */
-.kpi-card-big { padding: var(--space-3) var(--space-4); margin-bottom: var(--space-4); }
+.kpi-card-big { padding: var(--space-2) var(--space-4); margin-bottom: var(--space-4); }
 .kpi-big-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: var(--space-3); }
 .kpi-big-item { padding-left: var(--space-3); border-left: 1px solid var(--color-border); }
 .kpi-big-item:first-child { padding-left: 0; border-left: none; }

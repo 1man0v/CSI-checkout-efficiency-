@@ -5,7 +5,7 @@ let currentRole = localStorage.getItem("set_role") || "od";
 // Обновлено 2026-09-13: роли РД/ДМ теперь зафиксированы на магазине/регионе из реального набора
 // данных (см. prototype/backend/seed-data/), а не на прежних синтетических "Москва-Восток"/№404.
 const RD_REGION = "Регион 3";
-const DM_STORE_ID = "531";
+const DM_STORE_ID = "134";
 let screenStateOverride = {}; // п.5: один общий контрол в сайдбаре, не по экрану
 let sortState = {};
 let filterState = {};
@@ -457,23 +457,23 @@ function renderChart({ points, trendPoints, refValue, refLabel, formatX, kind = 
 // часам и порог перегрузки"). Отдельная функция, а не renderChart: renderChart не поддерживает
 // две сложенные столбчатые серии + линию одновременно (для kind:"bar" линия тренда сознательно
 // отключена в refreshMetricChart, см. комментарий там). ---
-function renderHourlyLoadChart(points, overloadThreshold) {
+// Загрузка кассовой линии (POS+КСО), formula "residual demand" — см. пояснение у
+// hourlyLoadProfile (backend/routes/analytics.js) и /Users/aimanov/Downloads/sco capacity/*.
+// Столбцы — фактический спрос (POS-факт + КСО-факт, стек); синяя ступенчатая линия — пропускная
+// способность КСО при текущем числе задействованных терминалов; красная пунктирная ступенчатая
+// линия — пропускная способность открытых POS; красная точка — час, где открытых POS больше, чем
+// реально требуется под остаток спроса после КСО (is_excess_pos, посчитано на бэкенде).
+function renderHourlyLoadChart(points) {
   if (!points || !points.length) return `<p style="color:var(--color-text-muted)">${t("chart.no_data")}</p>`;
   const totals = points.map(p => p.pos_checks + p.sco_checks);
-  const dataMax = Math.max(...totals, overloadThreshold, 1);
+  const dataMax = Math.max(...totals, ...points.map(p => p.pos_capacity), ...points.map(p => p.sco_throughput), 1);
   const ticks = niceTicks(0, dataMax, 4);
   const max = ticks[ticks.length - 1];
-  const width = 680, height = 240, padL = 46, padB = 26, padT = 12, padR = 14;
+  const width = 680, height = 260, padL = 46, padB = 26, padT = 20, padR = 14;
   const plotW = width - padL - padR, plotH = height - padT - padB;
   const xFor = i => padL + (plotW / points.length) * (i + 0.5);
   const yFor = v => padT + plotH - (v / (max || 1)) * plotH;
   const barW = Math.max(2, (plotW / points.length) * 0.6);
-
-  const trend = totals.map((v, i) => {
-    const w = totals.slice(Math.max(0, i - 2), i + 3);
-    return w.reduce((a, b) => a + b, 0) / w.length;
-  });
-  const linePath = trend.map((v, i) => `${i === 0 ? "M" : "L"} ${xFor(i).toFixed(1)},${yFor(v).toFixed(1)}`).join(" ");
 
   const yGrid = ticks.map(v => `
     <line x1="${padL}" y1="${yFor(v).toFixed(1)}" x2="${width - padR}" y2="${yFor(v).toFixed(1)}" stroke="var(--color-text-muted)" stroke-opacity="0.3" />
@@ -489,29 +489,40 @@ function renderHourlyLoadChart(points, overloadThreshold) {
     const x = xFor(i) - barW / 2;
     const yPos = yFor(p.pos_checks);
     const ySco = yFor(p.pos_checks + p.sco_checks);
-    return `<rect x="${x.toFixed(1)}" y="${yPos.toFixed(1)}" width="${barW.toFixed(1)}" height="${(padT + plotH - yPos).toFixed(1)}" fill="var(--color-accent)" rx="1.5" />
-      <rect x="${x.toFixed(1)}" y="${ySco.toFixed(1)}" width="${barW.toFixed(1)}" height="${(yPos - ySco).toFixed(1)}" fill="var(--color-blue)" rx="1.5" />`;
+    return `<rect x="${x.toFixed(1)}" y="${yPos.toFixed(1)}" width="${barW.toFixed(1)}" height="${(padT + plotH - yPos).toFixed(1)}" fill="var(--color-yellow)" rx="1.5" />
+      <rect x="${x.toFixed(1)}" y="${ySco.toFixed(1)}" width="${barW.toFixed(1)}" height="${(yPos - ySco).toFixed(1)}" fill="var(--color-green)" rx="1.5" />`;
   }).join("");
 
-  const overloadY = yFor(overloadThreshold);
-  const overloadHours = points.filter((p, i) => totals[i] > overloadThreshold).map(p => `${String(p.hour).padStart(2, "0")}:00`);
+  const stepPath = values => values.map((v, i) => {
+    const x0 = xFor(i) - barW / 2 - 1, x1 = xFor(i) + barW / 2 + 1, y = yFor(v).toFixed(1);
+    return `${i === 0 ? "M" : "L"} ${x0.toFixed(1)},${y} L ${x1.toFixed(1)},${y}`;
+  }).join(" ");
+  const scoLine = stepPath(points.map(p => p.sco_throughput));
+  const posLine = stepPath(points.map(p => p.pos_capacity));
+
+  const excessDots = points.map((p, i) => p.is_excess_pos
+    ? `<circle cx="${xFor(i).toFixed(1)}" cy="${(yFor(totals[i]) - 10).toFixed(1)}" r="5" fill="var(--color-red)" />` : "").join("");
+
+  const excessHours = points.filter(p => p.is_excess_pos).map(p => `${String(p.hour).padStart(2, "0")}:00`);
 
   return `<div class="chart-svg-wrap"><svg viewBox="0 0 ${width} ${height}" width="100%" style="max-width:${width}px">
     ${yGrid}
     <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${padT + plotH}" stroke="var(--color-border)" />
     <line x1="${padL}" y1="${padT + plotH}" x2="${width - padR}" y2="${padT + plotH}" stroke="var(--color-border)" />
-    <line x1="${padL}" y1="${overloadY.toFixed(1)}" x2="${width - padR}" y2="${overloadY.toFixed(1)}" stroke="var(--color-yellow)" stroke-dasharray="4 3" />
     ${bars}
-    <path d="${linePath}" fill="none" stroke="var(--color-text-muted)" stroke-width="1.5" stroke-dasharray="5 3" />
+    <path d="${scoLine}" fill="none" stroke="var(--color-blue)" stroke-width="2" />
+    <path d="${posLine}" fill="none" stroke="var(--color-red)" stroke-width="2" stroke-dasharray="6 4" />
+    ${excessDots}
     ${xLabels}
   </svg></div>
   <div class="chart-legend-row">
-    <span class="legend-item"><span class="swatch" style="background:var(--color-accent)"></span>${t("chart.legend_pos")}</span>
-    <span class="legend-item"><span class="swatch" style="background:var(--color-blue)"></span>${t("chart.legend_sco")}</span>
-    <span class="legend-item"><span class="swatch-line" style="background:var(--color-text-muted)"></span>${t("chart.trend_ma")}</span>
-    <span class="legend-item"><span class="swatch-line" style="background:var(--color-yellow)"></span>${t("chart.legend_overload")}</span>
+    <span class="legend-item"><span class="swatch" style="background:var(--color-yellow)"></span>${t("chart.legend_pos")}</span>
+    <span class="legend-item"><span class="swatch" style="background:var(--color-green)"></span>${t("chart.legend_sco")}</span>
+    <span class="legend-item"><span class="swatch-line" style="background:var(--color-blue)"></span>${t("chart.legend_sco_capacity")}</span>
+    <span class="legend-item"><span class="swatch-line" style="background:var(--color-red)"></span>${t("chart.legend_pos_capacity")}</span>
+    <span class="legend-item"><span class="swatch" style="background:var(--color-red);border-radius:50%"></span>${t("chart.legend_excess")}</span>
   </div>
-  <p style="font-size:12px;color:var(--color-text-muted);margin-top:6px">${overloadHours.length ? t("chart.hourly_load_overload_note") + " " + overloadHours.join(", ") : t("chart.hourly_load_no_overload")}</p>`;
+  <p style="font-size:12px;color:var(--color-text-muted);margin-top:6px">${excessHours.length ? t("chart.hourly_load_overload_note") + " " + excessHours.join(", ") : t("chart.hourly_load_no_overload")}</p>`;
 }
 function formatHourLabel(ts) { const d = new Date(ts); return String(d.getHours()).padStart(2, "0") + ":00 " + String(d.getDate()).padStart(2, "0") + "." + String(d.getMonth() + 1).padStart(2, "0"); }
 function formatDayLabel(ts) { const d = new Date(ts); return String(d.getDate()).padStart(2, "0") + "." + String(d.getMonth() + 1).padStart(2, "0"); }
@@ -937,7 +948,7 @@ function renderNetworkDashboard() {
             onClick: `openMetricChart(${scopeParamsAttr}, 'pos_count', '${t("kpi.pos_count")}')` },
           { label: t("kpi.sco_count"), value: Math.round(counts.sco_count), trend: counts.sco_count_trend, trendDecimals: 0,
             onClick: `openMetricChart(${scopeParamsAttr}, 'sco_count', '${t("kpi.sco_count")}')` },
-          { label: t("kpi.outlier_count"), value: Math.round(counts.outlier_count), sub: counts.outlier_pct + "%", trend: counts.outlier_count_trend, trendDirection: "lower-better", trendDecimals: 0,
+          { label: t("kpi.outlier_count"), value: `${Math.round(counts.outlier_count)} (${counts.outlier_pct}%)`, trend: counts.outlier_count_trend, trendDirection: "lower-better", trendDecimals: 0,
             onClick: `openMetricChart(${scopeParamsAttr}, 'outlier_count', '${t("kpi.outlier_count")}')` }
         ])}
         </div>
@@ -1167,14 +1178,24 @@ function renderDiagnosis(store, hourlyLoad) {
     }
     body = blocks.join("");
   } else if (store.reason === "utilization") {
-    // Перегруз POS: те же часы перегрузки, что и на графике "Потоки по часам" ниже.
+    // Перегруз POS: часы, где открытых POS МЕНЬШЕ, чем требуется под остаток спроса после КСО
+    // (is_understaffed — риск очередей; не путать с is_excess_pos на графике ниже, это обратный
+    // случай — переизбыток открытых POS). Высокая суммарная недельная нагрузка (причина outlier'а)
+    // не всегда означает нехватку касс по часам — если КСО в этом магазине способна принять весь
+    // остаток спроса, часового дефицита может не быть вовсе (реальный случай, магазин №352): тогда
+    // показываем находку про избыток открытых POS вместо этого — она же и есть настоящая причина
+    // упущенной эффективности в этом случае (нужно не открывать больше POS, а перенаправлять поток).
     const points = hourlyLoad.points || [];
-    const totals = points.map(p => p.pos_checks + p.sco_checks);
-    const overloadHours = points.filter((p, i) => totals[i] > hourlyLoad.overloadThreshold).map(p => `${String(p.hour).padStart(2, "0")}:00`);
-    if (overloadHours.length) {
+    const understaffedHours = points.filter(p => p.is_understaffed).map(p => `${String(p.hour).padStart(2, "0")}:00`);
+    const excessHours = points.filter(p => p.is_excess_pos).map(p => `${String(p.hour).padStart(2, "0")}:00`);
+    if (understaffedHours.length) {
       const title = t("diagnosis.utilization_task_title");
       const prefill = { title, targetKpi: t("diagnosis.utilization_task_kpi") };
-      body = diagnosisBlock(title, t("diagnosis.utilization_hint", { hours: overloadHours.join(", ") }), prefill, store.id);
+      body = diagnosisBlock(title, t("diagnosis.utilization_hint", { hours: understaffedHours.join(", ") }), prefill, store.id);
+    } else if (excessHours.length) {
+      const title = t("diagnosis.utilization_excess_task_title");
+      const prefill = { title, targetKpi: t("diagnosis.utilization_excess_task_kpi") };
+      body = diagnosisBlock(title, t("diagnosis.utilization_excess_hint", { hours: excessHours.join(", ") }), prefill, store.id);
     } else {
       body = `<p style="color:var(--color-text-muted)">${t("diagnosis.no_data_hint")}</p>`;
     }
@@ -1295,7 +1316,7 @@ function renderStoreCard(storeId) {
 
         <div class="section"><div class="section-header"><h2>${t("kpi.hourly_load")}</h2></div>
           <div class="card"><p style="color:var(--color-text-muted);font-size:12px;margin-top:0">${t("kpi.hourly_load_sub")}</p>
-            ${renderHourlyLoadChart(hourlyLoad.points, hourlyLoad.overloadThreshold)}</div>
+            ${renderHourlyLoadChart(hourlyLoad.points)}</div>
         </div>
 
         <p style="color:var(--color-text-muted);font-size:12px">${t("store.drilldown_hint")}${periodLabel().toLowerCase()}.</p>

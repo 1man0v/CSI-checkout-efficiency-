@@ -333,10 +333,17 @@
     const p95 = sorted.length ? sorted[Math.min(p95Index, sorted.length - 1)] : 0;
     return { points, trend, p95 };
   }
+  // Портировано 1:1 с backend/routes/analytics.js hourlyLoadProfile (2026-09-13, formula "residual
+  // demand" — см. пояснение там же и /Users/aimanov/Downloads/sco capacity/*).
+  const TARGET_UTILIZATION = 0.7;
   function hourlyLoadProfile(query) {
     const store = DATA.stores.find(s => s.id === query.storeId);
-    if (!store) return { points: [], openingHour: 8, closingHour: 22, overloadThreshold: 0 };
-    const settings = DATA.settings_network;
+    if (!store) return { points: [], openingHour: 8, closingHour: 22, posCapacityPerKassa: 0, scoCapacityPerKassa: 0 };
+    const registers = DATA.registers.filter(r => r.store_id === store.id && r.avg_seconds != null);
+    const avgSeconds = type => { const list = registers.filter(r => r.type === type).map(r => r.avg_seconds); return list.length ? avg(list) : 0; };
+    const posCapacityPerKassa = avgSeconds("POS") ? (3600 / avgSeconds("POS")) * TARGET_UTILIZATION : 0;
+    const scoCapacityPerKassa = avgSeconds("SCO") ? (3600 / avgSeconds("SCO")) * TARGET_UTILIZATION : 0;
+
     const rows = [...DATA.hourly_metrics].filter(r => r.store_id === store.id).sort((a, b) => (a.ts < b.ts ? -1 : 1));
     const allDates = [...new Set(rows.map(r => r.ts.slice(0, 10)))].sort();
     let dateFrom, dateTo;
@@ -354,17 +361,35 @@
       if (!byHour.has(hour)) byHour.set(hour, []);
       byHour.get(hour).push(r);
     }
+    const pick = (list, field) => list.length ? (singleDay ? list[list.length - 1][field] : avg(list.map(r => r[field]))) : 0;
     const points = [];
     for (let hour = store.opening_hour; hour < store.closing_hour; hour++) {
       const list = byHour.get(hour) || [];
-      const pos = list.length ? (singleDay ? list[list.length - 1].pos_checks : avg(list.map(r => r.pos_checks))) : 0;
-      const sco = list.length ? (singleDay ? list[list.length - 1].sco_checks : avg(list.map(r => r.sco_checks))) : 0;
-      points.push({ hour, pos_checks: Math.round(pos), sco_checks: Math.round(sco) });
+      const posChecks = Math.round(pick(list, "pos_checks"));
+      const scoChecks = Math.round(pick(list, "sco_checks"));
+      const posPotential = Math.round(pick(list, "pos_potential_checks"));
+      const posOpenCount = Math.round(pick(list, "pos_open_count"));
+      const scoOpenCount = Math.round(pick(list, "sco_open_count"));
+
+      const totalDemand = posChecks + scoChecks;
+      const scoThroughput = Math.round(scoOpenCount * scoCapacityPerKassa);
+      const residualForPos = Math.max(0, totalDemand - scoThroughput);
+      const requiredKassCount = posCapacityPerKassa > 0 ? Math.ceil(residualForPos / posCapacityPerKassa) : 0;
+      const posCapacity = Math.round(posOpenCount * posCapacityPerKassa);
+      const isExcessPos = posOpenCount > requiredKassCount;
+      const isUnderstaffed = posOpenCount < requiredKassCount;
+
+      points.push({
+        hour, pos_checks: posChecks, sco_checks: scoChecks, pos_potential_checks: posPotential,
+        pos_open_count: posOpenCount, sco_open_count: scoOpenCount,
+        pos_capacity: posCapacity, sco_throughput: scoThroughput,
+        required_kass_count: requiredKassCount, is_excess_pos: isExcessPos, is_understaffed: isUnderstaffed
+      });
     }
-    const hoursOpen = Math.max(1, store.closing_hour - store.opening_hour);
-    const hourlyNorm = (settings.pos_weekly_norm + settings.sco_weekly_norm) / 7 / hoursOpen;
-    const overloadThreshold = Math.round(hourlyNorm * 0.7);
-    return { points, openingHour: store.opening_hour, closingHour: store.closing_hour, overloadThreshold };
+    return {
+      points, openingHour: store.opening_hour, closingHour: store.closing_hour,
+      posCapacityPerKassa: Math.round(posCapacityPerKassa), scoCapacityPerKassa: Math.round(scoCapacityPerKassa)
+    };
   }
   function registerHistory(registerId) {
     const register = DATA.registers.find(r => r.id === registerId);

@@ -51,6 +51,10 @@ function isoDaysAgo(d) { return new Date(Date.now() - d * 86400 * 1000).toISOStr
 function dateDaysAgo(d) { return isoDaysAgo(d).slice(0, 10); }
 
 const REAL = JSON.parse(fs.readFileSync(path.join(__dirname, "seed-data", "real-transactions-2026-03.json"), "utf8"));
+// Целевые чеки КСО и число различных касс с хотя бы одним чеком за час (2026-09-13, "график потоков" —
+// см. /Users/aimanov/Downloads/sco capacity/prompt_dashboard_sco.md) — отдельный файл, т.к. посчитан
+// другим проходом по тому же сырому экспорту (не входил в первоначальную агрегацию).
+const CAPACITY = JSON.parse(fs.readFileSync(path.join(__dirname, "seed-data", "hourly-capacity-2026-03.json"), "utf8"));
 // Реальные календарные даты марта, по возрастанию (обычно 30 штук — 01..30.03.2026).
 const REAL_DATES = Object.keys(REAL.stores["121"].daily).sort();
 const REAL_DAYS_N = REAL_DATES.length;
@@ -271,10 +275,12 @@ function seed() {
   // была подлинной). availability/pos_availability — синтетические (обеденный провал, тренд, шум),
   // как и раньше. ---
   const insertHourly = db.prepare(`INSERT INTO hourly_metrics
-    (store_id, ts, availability_pct, sco_share_pct, pos_availability_pct, sco_checks, pos_checks) VALUES (?, ?, ?, ?, ?, ?, ?)`);
+    (store_id, ts, availability_pct, sco_share_pct, pos_availability_pct, sco_checks, pos_checks, pos_potential_checks, pos_open_count, sco_open_count)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
   for (const id of storeIds) {
     const real = REAL.stores[id];
     const syn = STORE_SYNTHETIC[id];
+    const capacity = CAPACITY.stores[id] || {};
     const scoScale = SCO_SHARE_DEMO_OVERRIDE[id] ? SCO_SHARE_DEMO_OVERRIDE[id].dailyHourlyScale : 1;
     for (let h = 24 * 60 - 1; h >= 0; h--) {
       const ts = new Date(Date.now() - h * 3600 * 1000);
@@ -290,8 +296,13 @@ function seed() {
       const scoChecks = Math.round(realHour.sco_checks * scoScale), posChecks = realHour.pos_checks;
       const total = scoChecks + posChecks;
       const scoShare = total ? (scoChecks / total) * 100 : real.sco_share_pct;
+      // Целевые чеки КСО и число активных касс — из отдельного файла (см. CAPACITY выше), тот же цикл
+      // реальных дат. sco_open_count для демо-магазина 134 НЕ масштабируется — по замыслу все КСО
+      // "технически доступны и посчитаны как открытые", просто почти не используются (см. диагноз).
+      const realCap = (capacity[realDate] && capacity[realDate][String(hourOfDay)]) || { pos_potential_checks: 0, pos_open_count: 0, sco_open_count: 0 };
       insertHourly.run(id, ts.toISOString(), Math.round(availability * 10) / 10, Math.round(scoShare * 10) / 10,
-        Math.round(posAvailability * 10) / 10, scoChecks, posChecks);
+        Math.round(posAvailability * 10) / 10, scoChecks, posChecks,
+        realCap.pos_potential_checks, realCap.pos_open_count, realCap.sco_open_count);
     }
   }
 
