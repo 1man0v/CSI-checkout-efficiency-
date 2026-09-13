@@ -1115,6 +1115,16 @@ function median(nums) {
   const mid = (s.length - 1) / 2;
   return (s[Math.floor(mid)] + s[Math.ceil(mid)]) / 2;
 }
+// Один блок рекомендации: заголовок — предлагаемое решение (то же, что подставится заголовком задачи),
+// текст обычным начертанием — причина/расчет, по которому решение предложено. Разделены визуально
+// и структурно, а не одним абзацем, — по просьбе пользователя (2026-09-13, "много текста").
+function diagnosisBlock(titleText, causeHtml, prefill, storeId) {
+  return `<div class="diagnosis-block">
+    <h4 class="diagnosis-title">${titleText}</h4>
+    <p class="diagnosis-cause">${causeHtml}</p>
+    <button class="btn btn-primary" onclick="openCreateTaskModal('${storeId}', ${JSON.stringify(prefill).replace(/"/g, "&quot;")})">${t("diagnosis.suggest_task")}</button>
+  </div>`;
+}
 function renderDiagnosis(store, hourlyLoad) {
   let body;
   if (store.reason === "technical") {
@@ -1125,15 +1135,14 @@ function renderDiagnosis(store, hourlyLoad) {
     const problemR = store.registers.filter(r => !r.is_stale && DIAGNOSIS_PROBLEM_STATUSES.has(r.status) && !r.is_available)
       .sort((a, b) => (b.note ? 1 : 0) - (a.note ? 1 : 0))[0];
     if (staleR) {
-      const prefill = { registerId: staleR.id, title: t("diagnosis.stale_task_title", { id: staleR.id, days: staleR.stale_days }),
-        targetKpi: t("diagnosis.stale_task_kpi", { id: staleR.id }) };
-      body = `<p>${t("diagnosis.stale_hint", { id: staleR.id, days: staleR.stale_days })}</p>
-        <button class="btn btn-primary" onclick="openCreateTaskModal('${store.id}', ${JSON.stringify(prefill).replace(/"/g, "&quot;")})">${t("diagnosis.suggest_task")}</button>`;
+      const title = t("diagnosis.stale_task_title", { id: staleR.id, days: staleR.stale_days });
+      const prefill = { registerId: staleR.id, title, targetKpi: t("diagnosis.stale_task_kpi", { id: staleR.id }) };
+      body = diagnosisBlock(title, t("diagnosis.stale_hint", { id: staleR.id, days: staleR.stale_days }), prefill, store.id);
     } else if (problemR) {
-      const prefill = { registerId: problemR.id, title: t("diagnosis.technical_task_title", { id: problemR.id, status: registerLabel(problemR.status) }),
-        targetKpi: t("diagnosis.technical_task_kpi", { id: problemR.id }) };
-      body = `<p>${t("diagnosis.technical_hint", { id: problemR.id, status: registerLabel(problemR.status) })}${problemR.note ? " " + escapeHtml(problemR.note) : ""}</p>
-        <button class="btn btn-primary" onclick="openCreateTaskModal('${store.id}', ${JSON.stringify(prefill).replace(/"/g, "&quot;")})">${t("diagnosis.suggest_task")}</button>`;
+      const title = t("diagnosis.technical_task_title", { id: problemR.id, status: registerLabel(problemR.status) });
+      const prefill = { registerId: problemR.id, title, targetKpi: t("diagnosis.technical_task_kpi", { id: problemR.id }) };
+      const cause = t("diagnosis.technical_hint", { id: problemR.id, status: registerLabel(problemR.status) }) + (problemR.note ? " " + escapeHtml(problemR.note) : "");
+      body = diagnosisBlock(title, cause, prefill, store.id);
     } else {
       body = `<p style="color:var(--color-text-muted)">${t("diagnosis.no_data_hint")}</p>`;
     }
@@ -1143,17 +1152,18 @@ function renderDiagnosis(store, hourlyLoad) {
     // КСО на POS"), затем, если есть, конкретную кассу SCO, которая технически доступна и в строю
     // (не stale), но используется заметно меньше сестринских — как ЧАСТЬ причины системного разрыва,
     // не вместо нее (даже если чинить только одну кассу, до норматива это не дотянет само по себе).
-    const potentialPrefill = { title: t("diagnosis.business_systemic_task_title"), targetKpi: t("diagnosis.business_systemic_task_kpi") };
-    const blocks = [`<p>${t("diagnosis.business_potential_hint", { share: store.sco_share_pct, potential: store.potential_sco_pct, load: store.pos_load_week })}</p>
-      <button class="btn btn-primary" onclick="openCreateTaskModal('${store.id}', ${JSON.stringify(potentialPrefill).replace(/"/g, "&quot;")})">${t("diagnosis.suggest_task")}</button>`];
+    const potentialTitle = t("diagnosis.business_systemic_task_title");
+    const potentialPrefill = { title: potentialTitle, targetKpi: t("diagnosis.business_systemic_task_kpi") };
+    const blocks = [diagnosisBlock(potentialTitle,
+      t("diagnosis.business_potential_hint", { share: store.sco_share_pct, potential: store.potential_sco_pct, load: store.pos_load_week }),
+      potentialPrefill, store.id)];
     const scoRegs = store.registers.filter(r => r.type === "SCO");
     const med = median(scoRegs.map(r => r.utilization_pct));
     const anomaly = scoRegs.find(r => med > 0 && r.utilization_pct <= med / 2 && r.status === "available" && !r.is_stale);
     if (anomaly) {
-      const prefill = { registerId: anomaly.id, title: t("diagnosis.business_register_task_title", { id: anomaly.id }),
-        targetKpi: t("diagnosis.business_register_task_kpi", { id: anomaly.id }) };
-      blocks.push(`<p style="margin-top:16px;padding-top:16px;border-top:1px solid var(--color-border)">${t("diagnosis.business_register_hint", { id: anomaly.id, util: anomaly.utilization_pct, median: Math.round(med) })}</p>
-        <button class="btn btn-primary" onclick="openCreateTaskModal('${store.id}', ${JSON.stringify(prefill).replace(/"/g, "&quot;")})">${t("diagnosis.suggest_task")}</button>`);
+      const title = t("diagnosis.business_register_task_title", { id: anomaly.id });
+      const prefill = { registerId: anomaly.id, title, targetKpi: t("diagnosis.business_register_task_kpi", { id: anomaly.id }) };
+      blocks.push(diagnosisBlock(title, t("diagnosis.business_register_hint", { id: anomaly.id, util: anomaly.utilization_pct, median: Math.round(med) }), prefill, store.id));
     }
     body = blocks.join("");
   } else if (store.reason === "utilization") {
@@ -1162,9 +1172,9 @@ function renderDiagnosis(store, hourlyLoad) {
     const totals = points.map(p => p.pos_checks + p.sco_checks);
     const overloadHours = points.filter((p, i) => totals[i] > hourlyLoad.overloadThreshold).map(p => `${String(p.hour).padStart(2, "0")}:00`);
     if (overloadHours.length) {
-      const prefill = { title: t("diagnosis.utilization_task_title"), targetKpi: t("diagnosis.utilization_task_kpi") };
-      body = `<p>${t("diagnosis.utilization_hint", { hours: overloadHours.join(", ") })}</p>
-        <button class="btn btn-primary" onclick="openCreateTaskModal('${store.id}', ${JSON.stringify(prefill).replace(/"/g, "&quot;")})">${t("diagnosis.suggest_task")}</button>`;
+      const title = t("diagnosis.utilization_task_title");
+      const prefill = { title, targetKpi: t("diagnosis.utilization_task_kpi") };
+      body = diagnosisBlock(title, t("diagnosis.utilization_hint", { hours: overloadHours.join(", ") }), prefill, store.id);
     } else {
       body = `<p style="color:var(--color-text-muted)">${t("diagnosis.no_data_hint")}</p>`;
     }
