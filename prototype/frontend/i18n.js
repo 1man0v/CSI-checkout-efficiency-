@@ -2,9 +2,8 @@
    ru/en (остальные языки будут добавлены по запросу); перевод только через таблицу ключей, каждый
    видимый текст интерфейса должен иметь ключ на обоих языках. Исключение (по явному указанию
    пользователя): названия регионов и ФИО — это данные БД, не UI-текст, не переводятся.
-   Не переведен сценарный контент ИИ-консультанта (SCR-13, статус MVP2/roadmap open) — его текст
-   жестко сопоставляется backend'ом (misc.js, SCRIPTED_ANSWERS) по точной строке вопроса;
-   перевод сломал бы сопоставление, поэтому консультант сознательно оставлен на русском. */
+   Экраны вне MVP1 (диагностика поддержки, аналитика использования продукта, ИИ-консультант)
+   в этот прототип не входят. */
 
 const LANGUAGES = [
   { code: "ru", label: "Русский" },
@@ -20,11 +19,10 @@ const I18N = {
     "scope.network": "Сеть", "scope.region": "Регион", "scope.store": "Магазин", "scope.of": "из",
     "nav.network": "Дашборд сети", "nav.outliers": "Аутсайдеры", "nav.performance": "Производительность",
     "nav.potential": "Потенциал SCO", "nav.availability": "Доступность", "nav.utilization": "Утилизация",
-    "nav.tasks": "Задачи", "nav.other_views": "Другие роли (демо)", "nav.diagnostics": "Диагностика",
-    "nav.product_analytics": "Аналитика продукта", "nav.advisor": "ИИ-консультант", "nav.settings": "Настройки (отдельное приложение)",
+    "nav.tasks": "Задачи", "nav.settings": "Настройки (отдельное приложение)",
     "action.filter": "Фильтр", "action.export": "Экспорт CSV", "action.create_task": "Создать задачу",
     "action.create_ticket": "Заявка в ИТ", "action.save": "Сохранить", "action.cancel": "Отмена", "action.close": "Закрыть",
-    "action.complete": "Выполнено", "action.escalate": "Эскалировать", "action.approve": "Согласовать", "action.send": "Отправить",
+    "action.complete": "Выполнено", "action.escalate": "Эскалировать", "action.approve": "Согласовать",
     "action.apply": "Применить", "action.worst_first": "Худшие сначала", "action.best_first": "Лучшие сначала",
     "action.low_availability": "Низкая доступность", "action.low_sco": "Низкая доля SCO", "action.high_potential": "Большой потенциал перетока",
     "action.realtime": "Реальное время", "action.last24h": "Последние 24 часа", "action.last7d": "Последние 7 дней", "action.last30d": "Последние 30 дней",
@@ -124,11 +122,7 @@ const I18N = {
     "task.form.due": "Срок выполнения", "task.form.quick5": "+5 мин", "task.form.quick30": "+30 мин", "task.form.quick60": "+60 мин",
     "ticket.register": "Касса", "ticket.register_placeholder": "Например: 087-S1",
     "ticket.description": "Описание неисправности", "ticket.description_placeholder": "Ошибка банка при оплате",
-    "diag.search_label": "Поиск по кассе/магазину", "diag.full_access_banner": "«Полный доступ» включает коммерческие метрики (выручка, доля SCO).",
-    "advisor.roadmap_banner": "Включено в визуальный прототип по решению Product Manager — статус в дорожной карте продукта открыт.",
-    "advisor.placeholder": "Задайте вопрос...", "advisor.example_hint": "Задайте вопрос — например, «{example}».",
-    "advisor.open_store_example": "→ Открыть карточку магазина №531 (пример)", "advisor.recommendations": "Рекомендации:",
-    "advisor.hypothesis": "Гипотеза:", "advisor.confidence": "уверенность",
+
     "utilization.threshold_banner": "Пороги нагрузки — настраиваемый параметр из отдельного приложения настроек, не фиксированное значение.",
     "kpi.utilization_pos": "Утилизация POS", "kpi.utilization_sco": "Утилизация SCO",
     "kpi.actual_sco_share": "Фактическая доля SCO", "kpi.sco_transfer_potential": "Потенциал перевода на SCO",
@@ -140,7 +134,7 @@ const I18N = {
     "register.history_title": "Касса {id} — история состояний", "register.type_label": "Тип", "register.current_state": "текущее состояние",
     "register.total_time_by_state": "Суммарное время по состояниям", "register.episode_log": "Журнал эпизодов",
     "th.start": "Начало", "th.duration": "Длительность",
-    "advisor.request_error": "Ошибка запроса к серверу.", "filter.all": "Все",
+    "filter.all": "Все",
     "chart.hourly_title": "почасовой график", "chart.daily_title": "график по дням", "chart.week_prefix": "нед."
   },
   en: {
@@ -151,11 +145,10 @@ const I18N = {
     "scope.network": "Network", "scope.region": "Region", "scope.store": "Store", "scope.of": "of",
     "nav.network": "Network dashboard", "nav.outliers": "Outliers", "nav.performance": "Performance",
     "nav.potential": "SCO potential", "nav.availability": "Availability", "nav.utilization": "Utilization",
-    "nav.tasks": "Tasks", "nav.other_views": "Other roles (demo)", "nav.diagnostics": "Diagnostics",
-    "nav.product_analytics": "Product analytics", "nav.advisor": "AI advisor", "nav.settings": "Settings (separate app)",
+    "nav.tasks": "Tasks", "nav.settings": "Settings (separate app)",
     "action.filter": "Filter", "action.export": "Export CSV", "action.create_task": "Create task",
     "action.create_ticket": "IT ticket", "action.save": "Save", "action.cancel": "Cancel", "action.close": "Close",
-    "action.complete": "Complete", "action.escalate": "Escalate", "action.approve": "Approve", "action.send": "Send",
+    "action.complete": "Complete", "action.escalate": "Escalate", "action.approve": "Approve",
     "action.apply": "Apply", "action.worst_first": "Worst first", "action.best_first": "Best first",
     "action.low_availability": "Low availability", "action.low_sco": "Low SCO share", "action.high_potential": "High shift potential",
     "action.realtime": "Real time", "action.last24h": "Last 24 hours", "action.last7d": "Last 7 days", "action.last30d": "Last 30 days",
@@ -255,11 +248,7 @@ const I18N = {
     "task.form.due": "Due date", "task.form.quick5": "+5 min", "task.form.quick30": "+30 min", "task.form.quick60": "+60 min",
     "ticket.register": "Register", "ticket.register_placeholder": "E.g.: 087-S1",
     "ticket.description": "Fault description", "ticket.description_placeholder": "Bank error during payment",
-    "diag.search_label": "Search by register/store", "diag.full_access_banner": "“Full access” includes commercial metrics (revenue, SCO share).",
-    "advisor.roadmap_banner": "Included in the visual prototype per Product Manager decision — status on the product roadmap is still open.",
-    "advisor.placeholder": "Ask a question...", "advisor.example_hint": "Ask a question — for example, “{example}”.",
-    "advisor.open_store_example": "→ Open store #531 card (example)", "advisor.recommendations": "Recommendations:",
-    "advisor.hypothesis": "Hypothesis:", "advisor.confidence": "confidence",
+
     "utilization.threshold_banner": "Load thresholds are a configurable setting in the separate settings app, not a fixed value.",
     "kpi.utilization_pos": "POS utilization", "kpi.utilization_sco": "SCO utilization",
     "kpi.actual_sco_share": "Actual SCO share", "kpi.sco_transfer_potential": "SCO shift potential",
@@ -271,7 +260,7 @@ const I18N = {
     "register.history_title": "Register {id} — state history", "register.type_label": "Type", "register.current_state": "current state",
     "register.total_time_by_state": "Total time by state", "register.episode_log": "Episode log",
     "th.start": "Start", "th.duration": "Duration",
-    "advisor.request_error": "Server request error.", "filter.all": "All",
+    "filter.all": "All",
     "chart.hourly_title": "hourly chart", "chart.daily_title": "daily chart", "chart.week_prefix": "wk"
   }
 };

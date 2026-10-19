@@ -10,7 +10,6 @@ const stores = require("./routes/stores");
 const tasksApi = require("./routes/tasks");
 const settingsApi = require("./routes/settings");
 const causesApi = require("./routes/causes");
-const misc = require("./routes/misc");
 const analytics = require("./routes/analytics");
 
 const PORT = process.env.PORT || 4000;
@@ -109,11 +108,6 @@ async function handleApi(req, res, pathname, query) {
       const result = tasksApi.escalateTask(db, m[1]);
       return sendJson(res, result.status, result.body);
     }
-
-    // --- diagnostics / usage / advisor ---
-    if (req.method === "GET" && pathname === "/api/diagnostics") return sendJson(res, 200, misc.diagnostics(db, query.search || ""));
-    if (req.method === "GET" && pathname === "/api/usage") return sendJson(res, 200, misc.usageStats(db));
-    if (req.method === "GET" && pathname === "/api/advisor") return sendJson(res, 200, misc.askAdvisor(query.q || ""));
 
     // --- analytics: тренды по времени, региональная сводка, история кассы ---
     if (req.method === "GET" && pathname === "/api/analytics/daily") return sendJson(res, 200, analytics.dailySeries(db, query));

@@ -150,42 +150,6 @@
     return { status: 200, body: task };
   }
 
-  // ---------- misc.js ----------
-  function diagnostics(search) {
-    const rows = DATA.registers.map(r => {
-      const s = DATA.stores.find(st => st.id === r.store_id);
-      return { ...r, revenue_week: Math.round(r.checks_week * 780), store_label: `${s.number} «${s.name}»`, sco_share_pct: s.sco_share_pct,
-        is_stale: isRegisterStale(r), stale_days: isRegisterStale(r) ? staleDays(r) : null };
-    }).sort(byIdAsc);
-    if (!search) return rows.slice(0, 20);
-    const needle = search.toLowerCase();
-    return rows.filter(r => r.id.toLowerCase().includes(needle) || r.store_label.toLowerCase().includes(needle)).slice(0, 20);
-  }
-  function usageStats() { return [...DATA.usage_stats].sort((a, b) => b.opens - a.opens); }
-  const SCRIPTED_ANSWERS = {
-    "что сегодня мешает эффективности магазина?": {
-      conclusion: "Основная причина снижения эффективности — недоступность КСО в пиковый период.",
-      facts: [
-        "В 12:00 наблюдалась пиковая нагрузка (20 чеков против среднего 15.4/час)",
-        "Доступность КСО за период составила 72%",
-        "Простой КСО (110 минут) пришелся на период 12:00–13:00 — совпадает с пиковой нагрузкой"
-      ],
-      hypothesis: { name: "КСО недоступны в пиковые часы", confidence: 0.91 },
-      recommendations: [
-        "Проверить причины недоступности КСО: блокировки, ошибки оборудования, бумагу, эквайринг",
-        "Обеспечить контроль КСО в часы пик"
-      ]
-    }
-  };
-  function askAdvisor(question) {
-    const key = (question || "").trim().toLowerCase();
-    return SCRIPTED_ANSWERS[key] || {
-      conclusion: "Демо поддерживает сценарный ответ только для примера из документации.",
-      facts: ["Попробуйте вопрос: «Что сегодня мешает эффективности магазина?»"],
-      hypothesis: { name: "—", confidence: 0 }, recommendations: []
-    };
-  }
-
   // ---------- analytics.js ----------
   function storeIdsForScope(scope, region, storeId) {
     if (scope === "store" && storeId) return [storeId];
@@ -410,7 +374,6 @@
     listStores, getStore, listCauses, createTicket, listTickets,
     getSettings, updateSettings, listApprovals, resolveApproval,
     listTasks, createTask, updateTaskStatus, escalateTask,
-    diagnostics, usageStats, askAdvisor,
     dailySeries, countsSeries, regionsSummary, hourlySeries, hourlyLoadProfile, registerHistory, posSummary
   };
 })();

@@ -40,16 +40,11 @@ const NAV_ITEMS = [
   { id: "SCR-07", route: "utilization", key: "nav.utilization", roles: ["od", "rd", "dm"] },
   { id: "SCR-09", route: "tasks", key: "nav.tasks", roles: ["od", "rd", "dm"] }
 ];
-const SECONDARY_NAV_ITEMS = [
-  { id: "SCR-11", route: "diagnostics", key: "nav.diagnostics" },
-  { id: "SCR-12", route: "product-analytics", key: "nav.product_analytics" },
-  { id: "SCR-13", route: "advisor", key: "nav.advisor" }
-];
 function nav(route) { location.hash = "#/" + route; }
 function currentRoute() { return location.hash.replace(/^#\//, "") || "network"; }
 function currentScreenId() {
   const base = currentRoute().split("/")[0];
-  const found = [...NAV_ITEMS, ...SECONDARY_NAV_ITEMS].find(i => i.route === base);
+  const found = NAV_ITEMS.find(i => i.route === base);
   return found ? found.id : (base === "store" ? "SCR-03" : "SCR-01");
 }
 function el(id) { return document.getElementById(id); }
@@ -763,8 +758,7 @@ function renderShell() {
     <div class="role-switcher"><div class="role-switcher-label">${t("role.label")}</div>
       <div class="role-toggle">${roleButton("od")}${roleButton("rd")}${roleButton("dm")}</div></div>
     <nav class="nav">${NAV_ITEMS.filter(i => i.roles.includes(currentRole)).map(navItemHtml).join("")}</nav>
-    <div class="nav-secondary"><div class="nav-secondary-label">${t("nav.other_views")}</div>
-      ${SECONDARY_NAV_ITEMS.map(navItemHtml).join("")}
+    <div class="nav-secondary">
       ${typeof IS_OFFLINE !== "undefined" && IS_OFFLINE
         ? `<a class="settings-link" onclick="openSettingsApp()">⚙ ${t("nav.settings")}</a>`
         : `<a class="settings-link" href="settings.html" target="_blank">⚙ ${t("nav.settings")}</a>`}
@@ -828,9 +822,10 @@ function render() {
   const routes = {
     network: renderNetworkDashboard, outliers: renderOutliers, store: () => renderStoreCard(param || DM_STORE_ID),
     performance: renderPerformance, potential: renderPotential, availability: renderAvailability, utilization: renderUtilization,
-    tasks: renderTasks, diagnostics: renderDiagnostics, "product-analytics": renderProductAnalytics, advisor: renderAdvisor
+    tasks: renderTasks
   };
-  (routes[base] || renderNetworkDashboard)();
+  if (!routes[base]) { location.hash = "#/network"; return; }
+  routes[base]();
 }
 
 // Этап 2/действие методологии (SCO/6133710853): ОД получает задачи, требующие внимания, сгруппированные
@@ -1588,75 +1583,6 @@ function openCreateTicketModal() {
 async function submitTicket() {
   try { await api.createTicket({ registerId: el("ticket-reg").value, description: el("ticket-desc").value }); closeOverlay(); toast(t("toast.ticket_created")); }
   catch (e) { toast(t("toast.error_prefix") + e.message); }
-}
-
-// ================= SCR-11 =================
-// preserveInput=true (при вводе в поле поиска) пропускает пересборку шапки/поля — иначе
-// content.innerHTML на каждый keystroke пересоздавал сам <input>, обрывая фокус после первого
-// символа (реальный баг, найден при проверке: многосимвольный поиск не печатался). Без аргумента
-// (первый рендер экрана, смена языка) пересобирается всё, как раньше.
-function renderDiagnostics(preserveInput) {
-  if (!preserveInput || !el("diag-search")) {
-    renderTopbar([{ label: t("nav.diagnostics") }]);
-    const content = el("content");
-    content.innerHTML = `<div class="section-header"><h1>${t("nav.diagnostics")}</h1></div>
-      <div class="scope-banner out-of-scope">${t("diag.full_access_banner")}</div>
-      <div class="filter-bar"><div><label>${t("diag.search_label")}</label><input type="text" id="diag-search" oninput="renderDiagnostics(true)" value="${filterState.diag || ""}"></div></div><div id="scr11-body"></div>`;
-  }
-  const search = el("diag-search") ? el("diag-search").value : "";
-  filterState.diag = search;
-  withState("SCR-11", el("scr11-body"), () => api.getDiagnostics(search),
-    (rows) => `<div class="card"><table><thead><tr><th>${t("th.store")}</th><th>${t("th.register")}</th><th>${t("th.state")}</th><th class="mono">${t("th.revenue_week")}</th><th class="mono">${t("th.sco_share")}</th></tr></thead>
-      <tbody>${rows.map(r => `<tr class="clickable-row ${r.is_stale ? "row-stale" : ""}" onclick="openRegisterHistory('${r.id}')"><td>${r.store_label}</td><td class="mono">${r.id}</td><td>${registerStatusBadge(r)}</td><td class="mono">${r.revenue_week.toLocaleString(dateLocale())} ₽</td><td class="mono">${r.sco_share_pct}%</td></tr>`).join("")}</tbody></table></div>`);
-}
-
-// ================= SCR-12 =================
-function renderProductAnalytics() {
-  renderTopbar([{ label: t("nav.product_analytics") }]);
-  const content = el("content");
-  content.innerHTML = `<div class="section-header"><h1>${t("nav.product_analytics")}</h1></div><div id="scr12-body"></div>`;
-  withState("SCR-12", el("scr12-body"), () => api.getUsage(),
-    (usage) => { const max = Math.max(...usage.map(u => u.opens)); return `<div class="card">${usage.map(u => barRow(usageReportLabel(u.report), u.opens, max)).join("")}</div>`; });
-}
-// Названия отчетов приходят из БД (usage_stats, посев) на русском — сопоставляем с уже
-// существующими ключами навигации, где это возможно.
-const USAGE_REPORT_KEY_BY_RU = {
-  "Дашборд сети": "nav.network", "Аутсайдеры": "nav.outliers", "Доступность касс": "nav.availability",
-  "Задачи": "nav.tasks", "Утилизация ресурсов": "nav.utilization", "ИИ-консультант": "nav.advisor"
-};
-function usageReportLabel(reportRu) { const key = USAGE_REPORT_KEY_BY_RU[reportRu]; return key ? t(key) : reportRu; }
-
-// ================= SCR-13 =================
-// Не переведено (см. примечание в i18n.js): вопросы и сценарные ответы сопоставляются backend'ом
-// (misc.js, SCRIPTED_ANSWERS) по точной строке — перевод сломал бы сопоставление.
-const ADVISOR_SUGGESTIONS = ["Что сегодня мешает эффективности магазина?", "Почему выросли очереди?", "Почему доля КСО ниже ожидаемой?"];
-let chatMessages = [];
-function renderAdvisor() {
-  renderTopbar([{ label: t("nav.advisor") }]);
-  el("content").innerHTML = `<div class="section-header"><h1>${t("nav.advisor")}</h1></div>
-    <div class="scope-banner mvp2">${t("advisor.roadmap_banner")}</div>
-    <div class="chat-panel card">
-      <div class="chat-suggestions">${ADVISOR_SUGGESTIONS.map(q => `<button onclick="askAdvisor('${q.replace(/'/g, "\\'")}')">${q}</button>`).join("")}</div>
-      <div class="chat-messages" id="chat-messages">${chatMessages.map(chatBubble).join("") || `<p style="color:var(--color-text-muted)">${t("advisor.example_hint", { example: ADVISOR_SUGGESTIONS[0] })}</p>`}</div>
-      <div class="chat-input-row"><input type="text" id="chat-input" placeholder="${t("advisor.placeholder")}" onkeydown="if(event.key==='Enter') askAdvisorFromInput()">
-        <button class="btn btn-primary" onclick="askAdvisorFromInput()">${t("action.send")}</button></div></div>`;
-}
-function chatBubble(m) {
-  if (m.role === "user") return `<div class="chat-msg user">${escapeHtml(m.text)}</div>`;
-  const a = m.text;
-  return `<div class="chat-msg assistant"><p><strong>${a.conclusion}</strong></p>${a.facts.map(f => `<div class="fact-card">• ${f}</div>`).join("")}
-    <p style="margin-top:8px">${t("advisor.hypothesis")} <strong>${a.hypothesis.name}</strong> (${t("advisor.confidence")} ${(a.hypothesis.confidence * 100).toFixed(0)}%)</p>
-    ${a.recommendations.length ? `<p>${t("advisor.recommendations")}</p><ul>${a.recommendations.map(r => `<li>${r}</li>`).join("")}</ul>` : ""}
-    <p><a onclick="nav('store/531')">${t("advisor.open_store_example")}</a></p></div>`;
-}
-function askAdvisorFromInput() { askAdvisor(el("chat-input").value); }
-async function askAdvisor(question) {
-  if (!question || !question.trim()) return;
-  chatMessages.push({ role: "user", text: question });
-  try { const answer = await api.askAdvisor(question); chatMessages.push({ role: "assistant", text: answer }); }
-  catch (e) { chatMessages.push({ role: "assistant", text: { conclusion: t("advisor.request_error"), facts: [e.message], hypothesis: { name: "—", confidence: 0 }, recommendations: [] } }); }
-  renderAdvisor();
-  setTimeout(() => { const box = el("chat-messages"); if (box) box.scrollTop = box.scrollHeight; }, 0);
 }
 
 // ================= SCR-08: Настройки (в офлайн-сборке — оверлей вместо отдельного файла) =================

@@ -303,19 +303,6 @@ tr.row-stale:hover { opacity: 0.8; }
 .task-card .task-meta { font-size: 11px; color: var(--color-text-muted); display: flex; justify-content: space-between; }
 .task-card .task-escalated { color: var(--color-red); font-size: 11px; margin-top: 4px; }
 
-/* ---------- Chat (SCR-13) ---------- */
-.chat-panel { display: flex; flex-direction: column; height: calc(100vh - 200px); }
-.chat-messages { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: var(--space-4); padding: var(--space-2); }
-.chat-msg { max-width: 640px; padding: var(--space-3) var(--space-4); border-radius: var(--radius-md); }
-.chat-msg.user { align-self: flex-end; background: var(--color-accent); color: var(--color-accent-contrast); }
-.chat-msg.assistant { align-self: flex-start; background: var(--color-surface); border: 1px solid var(--color-border); }
-.chat-msg.assistant .fact-card { background: var(--color-bg); border-radius: var(--radius-sm); padding: var(--space-2) var(--space-3); margin: var(--space-2) 0; font-size: 13px; }
-.chat-input-row { display: flex; gap: var(--space-2); padding-top: var(--space-4); }
-.chat-input-row input { flex: 1; }
-.chat-suggestions { display: flex; gap: var(--space-2); flex-wrap: wrap; margin-bottom: var(--space-3); }
-.chat-suggestions button { all: unset; cursor: pointer; font-size: 12px; border: 1px solid var(--color-border); border-radius: 999px; padding: 6px 12px; color: var(--color-text-muted); }
-.chat-suggestions button:hover { border-color: var(--color-accent); color: var(--color-accent); }
-
 /* ---------- Empty / error / loading states ---------- */
 .state-panel { text-align: center; padding: var(--space-10) var(--space-6); color: var(--color-text-muted); }
 .state-panel .state-icon { font-size: 32px; margin-bottom: var(--space-3); }
@@ -478,7 +465,7 @@ tr.row-stale:hover { opacity: 0.8; }
       <div class="content" id="content"></div>
     </main>
   </div>
-  <div class="offline-banner">Офлайн-копия прототипа «Set — Эффективность зоны расчета», собрана 2026-09-13. Демо-данные встроены в файл и не сохраняются между открытиями — изменения (задачи, настройки) живут только в текущей вкладке.</div>
+  <div class="offline-banner">Офлайн-копия прототипа «Set — Эффективность зоны расчета», собрана 2026-10-19. Демо-данные встроены в файл и не сохраняются между открытиями — изменения (задачи, настройки) живут только в текущей вкладке.</div>
 
 <script>
 window.IS_OFFLINE = true;
@@ -714,42 +701,6 @@ window.OfflineRules = { kpiStatusHigherBetter, classifyOutlier, isRegisterAvaila
     return { status: 200, body: task };
   }
 
-  // ---------- misc.js ----------
-  function diagnostics(search) {
-    const rows = DATA.registers.map(r => {
-      const s = DATA.stores.find(st => st.id === r.store_id);
-      return { ...r, revenue_week: Math.round(r.checks_week * 780), store_label: `${s.number} «${s.name}»`, sco_share_pct: s.sco_share_pct,
-        is_stale: isRegisterStale(r), stale_days: isRegisterStale(r) ? staleDays(r) : null };
-    }).sort(byIdAsc);
-    if (!search) return rows.slice(0, 20);
-    const needle = search.toLowerCase();
-    return rows.filter(r => r.id.toLowerCase().includes(needle) || r.store_label.toLowerCase().includes(needle)).slice(0, 20);
-  }
-  function usageStats() { return [...DATA.usage_stats].sort((a, b) => b.opens - a.opens); }
-  const SCRIPTED_ANSWERS = {
-    "что сегодня мешает эффективности магазина?": {
-      conclusion: "Основная причина снижения эффективности — недоступность КСО в пиковый период.",
-      facts: [
-        "В 12:00 наблюдалась пиковая нагрузка (20 чеков против среднего 15.4/час)",
-        "Доступность КСО за период составила 72%",
-        "Простой КСО (110 минут) пришелся на период 12:00–13:00 — совпадает с пиковой нагрузкой"
-      ],
-      hypothesis: { name: "КСО недоступны в пиковые часы", confidence: 0.91 },
-      recommendations: [
-        "Проверить причины недоступности КСО: блокировки, ошибки оборудования, бумагу, эквайринг",
-        "Обеспечить контроль КСО в часы пик"
-      ]
-    }
-  };
-  function askAdvisor(question) {
-    const key = (question || "").trim().toLowerCase();
-    return SCRIPTED_ANSWERS[key] || {
-      conclusion: "Демо поддерживает сценарный ответ только для примера из документации.",
-      facts: ["Попробуйте вопрос: «Что сегодня мешает эффективности магазина?»"],
-      hypothesis: { name: "—", confidence: 0 }, recommendations: []
-    };
-  }
-
   // ---------- analytics.js ----------
   function storeIdsForScope(scope, region, storeId) {
     if (scope === "store" && storeId) return [storeId];
@@ -974,7 +925,6 @@ window.OfflineRules = { kpiStatusHigherBetter, classifyOutlier, isRegisterAvaila
     listStores, getStore, listCauses, createTicket, listTickets,
     getSettings, updateSettings, listApprovals, resolveApproval,
     listTasks, createTask, updateTaskStatus, escalateTask,
-    diagnostics, usageStats, askAdvisor,
     dailySeries, countsSeries, regionsSummary, hourlySeries, hourlyLoadProfile, registerHistory, posSummary
   };
 })();
@@ -1010,9 +960,6 @@ window.OfflineRules = { kpiStatusHigherBetter, classifyOutlier, isRegisterAvaila
     createTask: body => mutation(B().createTask(body || {})),
     updateTaskStatus: (id, status) => mutation(B().updateTaskStatus(id, status)),
     escalateTask: id => mutation(B().escalateTask(id)),
-    getDiagnostics: search => ok(B().diagnostics(search || "")),
-    getUsage: () => ok(B().usageStats()),
-    askAdvisor: q => ok(B().askAdvisor(q || "")),
     getDailySeries: params => ok(B().dailySeries(params || {})),
     getCountsSeries: params => ok(B().countsSeries(params || {})),
     getRegionsSummary: params => ok(B().regionsSummary(params || {})),
@@ -1029,9 +976,8 @@ window.OfflineRules = { kpiStatusHigherBetter, classifyOutlier, isRegisterAvaila
    ru/en (остальные языки будут добавлены по запросу); перевод только через таблицу ключей, каждый
    видимый текст интерфейса должен иметь ключ на обоих языках. Исключение (по явному указанию
    пользователя): названия регионов и ФИО — это данные БД, не UI-текст, не переводятся.
-   Не переведен сценарный контент ИИ-консультанта (SCR-13, статус MVP2/roadmap open) — его текст
-   жестко сопоставляется backend'ом (misc.js, SCRIPTED_ANSWERS) по точной строке вопроса;
-   перевод сломал бы сопоставление, поэтому консультант сознательно оставлен на русском. */
+   Экраны вне MVP1 (диагностика поддержки, аналитика использования продукта, ИИ-консультант)
+   в этот прототип не входят. */
 
 const LANGUAGES = [
   { code: "ru", label: "Русский" },
@@ -1047,11 +993,10 @@ const I18N = {
     "scope.network": "Сеть", "scope.region": "Регион", "scope.store": "Магазин", "scope.of": "из",
     "nav.network": "Дашборд сети", "nav.outliers": "Аутсайдеры", "nav.performance": "Производительность",
     "nav.potential": "Потенциал SCO", "nav.availability": "Доступность", "nav.utilization": "Утилизация",
-    "nav.tasks": "Задачи", "nav.other_views": "Другие роли (демо)", "nav.diagnostics": "Диагностика",
-    "nav.product_analytics": "Аналитика продукта", "nav.advisor": "ИИ-консультант", "nav.settings": "Настройки (отдельное приложение)",
+    "nav.tasks": "Задачи", "nav.settings": "Настройки (отдельное приложение)",
     "action.filter": "Фильтр", "action.export": "Экспорт CSV", "action.create_task": "Создать задачу",
     "action.create_ticket": "Заявка в ИТ", "action.save": "Сохранить", "action.cancel": "Отмена", "action.close": "Закрыть",
-    "action.complete": "Выполнено", "action.escalate": "Эскалировать", "action.approve": "Согласовать", "action.send": "Отправить",
+    "action.complete": "Выполнено", "action.escalate": "Эскалировать", "action.approve": "Согласовать",
     "action.apply": "Применить", "action.worst_first": "Худшие сначала", "action.best_first": "Лучшие сначала",
     "action.low_availability": "Низкая доступность", "action.low_sco": "Низкая доля SCO", "action.high_potential": "Большой потенциал перетока",
     "action.realtime": "Реальное время", "action.last24h": "Последние 24 часа", "action.last7d": "Последние 7 дней", "action.last30d": "Последние 30 дней",
@@ -1151,11 +1096,7 @@ const I18N = {
     "task.form.due": "Срок выполнения", "task.form.quick5": "+5 мин", "task.form.quick30": "+30 мин", "task.form.quick60": "+60 мин",
     "ticket.register": "Касса", "ticket.register_placeholder": "Например: 087-S1",
     "ticket.description": "Описание неисправности", "ticket.description_placeholder": "Ошибка банка при оплате",
-    "diag.search_label": "Поиск по кассе/магазину", "diag.full_access_banner": "«Полный доступ» включает коммерческие метрики (выручка, доля SCO).",
-    "advisor.roadmap_banner": "Включено в визуальный прототип по решению Product Manager — статус в дорожной карте продукта открыт.",
-    "advisor.placeholder": "Задайте вопрос...", "advisor.example_hint": "Задайте вопрос — например, «{example}».",
-    "advisor.open_store_example": "→ Открыть карточку магазина №531 (пример)", "advisor.recommendations": "Рекомендации:",
-    "advisor.hypothesis": "Гипотеза:", "advisor.confidence": "уверенность",
+
     "utilization.threshold_banner": "Пороги нагрузки — настраиваемый параметр из отдельного приложения настроек, не фиксированное значение.",
     "kpi.utilization_pos": "Утилизация POS", "kpi.utilization_sco": "Утилизация SCO",
     "kpi.actual_sco_share": "Фактическая доля SCO", "kpi.sco_transfer_potential": "Потенциал перевода на SCO",
@@ -1167,7 +1108,7 @@ const I18N = {
     "register.history_title": "Касса {id} — история состояний", "register.type_label": "Тип", "register.current_state": "текущее состояние",
     "register.total_time_by_state": "Суммарное время по состояниям", "register.episode_log": "Журнал эпизодов",
     "th.start": "Начало", "th.duration": "Длительность",
-    "advisor.request_error": "Ошибка запроса к серверу.", "filter.all": "Все",
+    "filter.all": "Все",
     "chart.hourly_title": "почасовой график", "chart.daily_title": "график по дням", "chart.week_prefix": "нед."
   },
   en: {
@@ -1178,11 +1119,10 @@ const I18N = {
     "scope.network": "Network", "scope.region": "Region", "scope.store": "Store", "scope.of": "of",
     "nav.network": "Network dashboard", "nav.outliers": "Outliers", "nav.performance": "Performance",
     "nav.potential": "SCO potential", "nav.availability": "Availability", "nav.utilization": "Utilization",
-    "nav.tasks": "Tasks", "nav.other_views": "Other roles (demo)", "nav.diagnostics": "Diagnostics",
-    "nav.product_analytics": "Product analytics", "nav.advisor": "AI advisor", "nav.settings": "Settings (separate app)",
+    "nav.tasks": "Tasks", "nav.settings": "Settings (separate app)",
     "action.filter": "Filter", "action.export": "Export CSV", "action.create_task": "Create task",
     "action.create_ticket": "IT ticket", "action.save": "Save", "action.cancel": "Cancel", "action.close": "Close",
-    "action.complete": "Complete", "action.escalate": "Escalate", "action.approve": "Approve", "action.send": "Send",
+    "action.complete": "Complete", "action.escalate": "Escalate", "action.approve": "Approve",
     "action.apply": "Apply", "action.worst_first": "Worst first", "action.best_first": "Best first",
     "action.low_availability": "Low availability", "action.low_sco": "Low SCO share", "action.high_potential": "High shift potential",
     "action.realtime": "Real time", "action.last24h": "Last 24 hours", "action.last7d": "Last 7 days", "action.last30d": "Last 30 days",
@@ -1282,11 +1222,7 @@ const I18N = {
     "task.form.due": "Due date", "task.form.quick5": "+5 min", "task.form.quick30": "+30 min", "task.form.quick60": "+60 min",
     "ticket.register": "Register", "ticket.register_placeholder": "E.g.: 087-S1",
     "ticket.description": "Fault description", "ticket.description_placeholder": "Bank error during payment",
-    "diag.search_label": "Search by register/store", "diag.full_access_banner": "“Full access” includes commercial metrics (revenue, SCO share).",
-    "advisor.roadmap_banner": "Included in the visual prototype per Product Manager decision — status on the product roadmap is still open.",
-    "advisor.placeholder": "Ask a question...", "advisor.example_hint": "Ask a question — for example, “{example}”.",
-    "advisor.open_store_example": "→ Open store #531 card (example)", "advisor.recommendations": "Recommendations:",
-    "advisor.hypothesis": "Hypothesis:", "advisor.confidence": "confidence",
+
     "utilization.threshold_banner": "Load thresholds are a configurable setting in the separate settings app, not a fixed value.",
     "kpi.utilization_pos": "POS utilization", "kpi.utilization_sco": "SCO utilization",
     "kpi.actual_sco_share": "Actual SCO share", "kpi.sco_transfer_potential": "SCO shift potential",
@@ -1298,7 +1234,7 @@ const I18N = {
     "register.history_title": "Register {id} — state history", "register.type_label": "Type", "register.current_state": "current state",
     "register.total_time_by_state": "Total time by state", "register.episode_log": "Episode log",
     "th.start": "Start", "th.duration": "Duration",
-    "advisor.request_error": "Server request error.", "filter.all": "All",
+    "filter.all": "All",
     "chart.hourly_title": "hourly chart", "chart.daily_title": "daily chart", "chart.week_prefix": "wk"
   }
 };
@@ -1361,16 +1297,11 @@ const NAV_ITEMS = [
   { id: "SCR-07", route: "utilization", key: "nav.utilization", roles: ["od", "rd", "dm"] },
   { id: "SCR-09", route: "tasks", key: "nav.tasks", roles: ["od", "rd", "dm"] }
 ];
-const SECONDARY_NAV_ITEMS = [
-  { id: "SCR-11", route: "diagnostics", key: "nav.diagnostics" },
-  { id: "SCR-12", route: "product-analytics", key: "nav.product_analytics" },
-  { id: "SCR-13", route: "advisor", key: "nav.advisor" }
-];
 function nav(route) { location.hash = "#/" + route; }
 function currentRoute() { return location.hash.replace(/^#\//, "") || "network"; }
 function currentScreenId() {
   const base = currentRoute().split("/")[0];
-  const found = [...NAV_ITEMS, ...SECONDARY_NAV_ITEMS].find(i => i.route === base);
+  const found = NAV_ITEMS.find(i => i.route === base);
   return found ? found.id : (base === "store" ? "SCR-03" : "SCR-01");
 }
 function el(id) { return document.getElementById(id); }
@@ -2084,8 +2015,7 @@ function renderShell() {
     <div class="role-switcher"><div class="role-switcher-label">${t("role.label")}</div>
       <div class="role-toggle">${roleButton("od")}${roleButton("rd")}${roleButton("dm")}</div></div>
     <nav class="nav">${NAV_ITEMS.filter(i => i.roles.includes(currentRole)).map(navItemHtml).join("")}</nav>
-    <div class="nav-secondary"><div class="nav-secondary-label">${t("nav.other_views")}</div>
-      ${SECONDARY_NAV_ITEMS.map(navItemHtml).join("")}
+    <div class="nav-secondary">
       ${typeof IS_OFFLINE !== "undefined" && IS_OFFLINE
         ? `<a class="settings-link" onclick="openSettingsApp()">⚙ ${t("nav.settings")}</a>`
         : `<a class="settings-link" href="settings.html" target="_blank">⚙ ${t("nav.settings")}</a>`}
@@ -2149,9 +2079,10 @@ function render() {
   const routes = {
     network: renderNetworkDashboard, outliers: renderOutliers, store: () => renderStoreCard(param || DM_STORE_ID),
     performance: renderPerformance, potential: renderPotential, availability: renderAvailability, utilization: renderUtilization,
-    tasks: renderTasks, diagnostics: renderDiagnostics, "product-analytics": renderProductAnalytics, advisor: renderAdvisor
+    tasks: renderTasks
   };
-  (routes[base] || renderNetworkDashboard)();
+  if (!routes[base]) { location.hash = "#/network"; return; }
+  routes[base]();
 }
 
 // Этап 2/действие методологии (SCO/6133710853): ОД получает задачи, требующие внимания, сгруппированные
@@ -2909,75 +2840,6 @@ function openCreateTicketModal() {
 async function submitTicket() {
   try { await api.createTicket({ registerId: el("ticket-reg").value, description: el("ticket-desc").value }); closeOverlay(); toast(t("toast.ticket_created")); }
   catch (e) { toast(t("toast.error_prefix") + e.message); }
-}
-
-// ================= SCR-11 =================
-// preserveInput=true (при вводе в поле поиска) пропускает пересборку шапки/поля — иначе
-// content.innerHTML на каждый keystroke пересоздавал сам <input>, обрывая фокус после первого
-// символа (реальный баг, найден при проверке: многосимвольный поиск не печатался). Без аргумента
-// (первый рендер экрана, смена языка) пересобирается всё, как раньше.
-function renderDiagnostics(preserveInput) {
-  if (!preserveInput || !el("diag-search")) {
-    renderTopbar([{ label: t("nav.diagnostics") }]);
-    const content = el("content");
-    content.innerHTML = `<div class="section-header"><h1>${t("nav.diagnostics")}</h1></div>
-      <div class="scope-banner out-of-scope">${t("diag.full_access_banner")}</div>
-      <div class="filter-bar"><div><label>${t("diag.search_label")}</label><input type="text" id="diag-search" oninput="renderDiagnostics(true)" value="${filterState.diag || ""}"></div></div><div id="scr11-body"></div>`;
-  }
-  const search = el("diag-search") ? el("diag-search").value : "";
-  filterState.diag = search;
-  withState("SCR-11", el("scr11-body"), () => api.getDiagnostics(search),
-    (rows) => `<div class="card"><table><thead><tr><th>${t("th.store")}</th><th>${t("th.register")}</th><th>${t("th.state")}</th><th class="mono">${t("th.revenue_week")}</th><th class="mono">${t("th.sco_share")}</th></tr></thead>
-      <tbody>${rows.map(r => `<tr class="clickable-row ${r.is_stale ? "row-stale" : ""}" onclick="openRegisterHistory('${r.id}')"><td>${r.store_label}</td><td class="mono">${r.id}</td><td>${registerStatusBadge(r)}</td><td class="mono">${r.revenue_week.toLocaleString(dateLocale())} ₽</td><td class="mono">${r.sco_share_pct}%</td></tr>`).join("")}</tbody></table></div>`);
-}
-
-// ================= SCR-12 =================
-function renderProductAnalytics() {
-  renderTopbar([{ label: t("nav.product_analytics") }]);
-  const content = el("content");
-  content.innerHTML = `<div class="section-header"><h1>${t("nav.product_analytics")}</h1></div><div id="scr12-body"></div>`;
-  withState("SCR-12", el("scr12-body"), () => api.getUsage(),
-    (usage) => { const max = Math.max(...usage.map(u => u.opens)); return `<div class="card">${usage.map(u => barRow(usageReportLabel(u.report), u.opens, max)).join("")}</div>`; });
-}
-// Названия отчетов приходят из БД (usage_stats, посев) на русском — сопоставляем с уже
-// существующими ключами навигации, где это возможно.
-const USAGE_REPORT_KEY_BY_RU = {
-  "Дашборд сети": "nav.network", "Аутсайдеры": "nav.outliers", "Доступность касс": "nav.availability",
-  "Задачи": "nav.tasks", "Утилизация ресурсов": "nav.utilization", "ИИ-консультант": "nav.advisor"
-};
-function usageReportLabel(reportRu) { const key = USAGE_REPORT_KEY_BY_RU[reportRu]; return key ? t(key) : reportRu; }
-
-// ================= SCR-13 =================
-// Не переведено (см. примечание в i18n.js): вопросы и сценарные ответы сопоставляются backend'ом
-// (misc.js, SCRIPTED_ANSWERS) по точной строке — перевод сломал бы сопоставление.
-const ADVISOR_SUGGESTIONS = ["Что сегодня мешает эффективности магазина?", "Почему выросли очереди?", "Почему доля КСО ниже ожидаемой?"];
-let chatMessages = [];
-function renderAdvisor() {
-  renderTopbar([{ label: t("nav.advisor") }]);
-  el("content").innerHTML = `<div class="section-header"><h1>${t("nav.advisor")}</h1></div>
-    <div class="scope-banner mvp2">${t("advisor.roadmap_banner")}</div>
-    <div class="chat-panel card">
-      <div class="chat-suggestions">${ADVISOR_SUGGESTIONS.map(q => `<button onclick="askAdvisor('${q.replace(/'/g, "\\'")}')">${q}</button>`).join("")}</div>
-      <div class="chat-messages" id="chat-messages">${chatMessages.map(chatBubble).join("") || `<p style="color:var(--color-text-muted)">${t("advisor.example_hint", { example: ADVISOR_SUGGESTIONS[0] })}</p>`}</div>
-      <div class="chat-input-row"><input type="text" id="chat-input" placeholder="${t("advisor.placeholder")}" onkeydown="if(event.key==='Enter') askAdvisorFromInput()">
-        <button class="btn btn-primary" onclick="askAdvisorFromInput()">${t("action.send")}</button></div></div>`;
-}
-function chatBubble(m) {
-  if (m.role === "user") return `<div class="chat-msg user">${escapeHtml(m.text)}</div>`;
-  const a = m.text;
-  return `<div class="chat-msg assistant"><p><strong>${a.conclusion}</strong></p>${a.facts.map(f => `<div class="fact-card">• ${f}</div>`).join("")}
-    <p style="margin-top:8px">${t("advisor.hypothesis")} <strong>${a.hypothesis.name}</strong> (${t("advisor.confidence")} ${(a.hypothesis.confidence * 100).toFixed(0)}%)</p>
-    ${a.recommendations.length ? `<p>${t("advisor.recommendations")}</p><ul>${a.recommendations.map(r => `<li>${r}</li>`).join("")}</ul>` : ""}
-    <p><a onclick="nav('store/531')">${t("advisor.open_store_example")}</a></p></div>`;
-}
-function askAdvisorFromInput() { askAdvisor(el("chat-input").value); }
-async function askAdvisor(question) {
-  if (!question || !question.trim()) return;
-  chatMessages.push({ role: "user", text: question });
-  try { const answer = await api.askAdvisor(question); chatMessages.push({ role: "assistant", text: answer }); }
-  catch (e) { chatMessages.push({ role: "assistant", text: { conclusion: t("advisor.request_error"), facts: [e.message], hypothesis: { name: "—", confidence: 0 }, recommendations: [] } }); }
-  renderAdvisor();
-  setTimeout(() => { const box = el("chat-messages"); if (box) box.scrollTop = box.scrollHeight; }, 0);
 }
 
 // ================= SCR-08: Настройки (в офлайн-сборке — оверлей вместо отдельного файла) =================
