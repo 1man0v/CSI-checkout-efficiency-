@@ -30,21 +30,20 @@
 
 ---
 
-## Технические риски (не блокируют, требуют внешней проверки у архитекторов Set Retail, не у Product Manager)
+## Закрыто Product Manager, 2026-10-19 (перед картой функций)
 
-- `requirements/06-system-scenarios/system-scenarios.md` → `NEEDS_INPUT: Технический риск — дублирование/потеря чеков при смене master-кассы`.
-- `requirements/06-system-scenarios/system-scenarios.md` → `NEEDS_INPUT: Точный подход к логированию платформы`.
+| Тема | Решение | Файл |
+| --- | --- | --- |
+| ИИ-консультант | MVP3, после MVP2. Первые этапы собирают базовые метрики. Демо в прототипе не входит в MVP1/MVP2 | `requirements/02-system/ai-advisor-concept.md`, `requirements/01-base/product-context.md` |
+| Страница «Другие технические причины» | Не входит в MVP1 и MVP2. Детализация страницы 5715099678 — MVP3 | `requirements/02-system/business-rules-and-formulas.md` |
+| Нормативы | Все пороги живут в настройках (SCR-08). Стартовые значения прототипа подтверждены, включая доступность POS 95%, «не в эксплуатации» 30 дней и скорость обслуживания без цветовой шкалы | `requirements/02-system/business-rules-and-formulas.md` |
 
-## Не блокирующие вопросы (без изменений, для сведения)
+## Технические вопросы инженерам (не блокируют handoff)
 
-- `requirements/02-system/entities-and-data-dictionary.md` → `NEEDS_INPUT: Идентификаторы полей в Set`
-- `requirements/02-system/business-rules-and-formulas.md` → `NEEDS_INPUT: Страница «Другие технические причины»`
-- `requirements/02-system/ai-advisor-concept.md` → `NEEDS_INPUT: Статус и приоритет ИИ-консультанта в дорожной карте`
-- `requirements/05-integrations/integrations.md` → `NEEDS_INPUT: Расшифровка «ЦСЛ» и протокол интеграции`
-- `requirements/05-integrations/integrations.md` → `NEEDS_INPUT: Аутентификация, авторизация и retry-политики для всех интеграций`
+- `requirements/06-system-scenarios/system-scenarios.md` → дублирование или потеря чеков при смене master-кассы.
+- `requirements/06-system-scenarios/system-scenarios.md` → точный подход к логированию платформы.
+- `requirements/02-system/entities-and-data-dictionary.md` → идентификаторы полей в Set.
+- `requirements/05-integrations/integrations.md` → расшифровка «ЦСЛ» и протокол интеграции.
+- `requirements/05-integrations/integrations.md` → аутентификация, авторизация и retry на границах интеграций.
 
----
-
-## Что дальше
-
-Все вопросы, блокировавшие обязательные Product Readiness Requirements, закрыты Product Manager. Построены артефакты этапа «Модель продукта»: `ai-artifacts/00-input-index.md`, `ai-artifacts/01-product.model.json`, `ai-artifacts/04-generation-report.md`. Оставшиеся 5 не блокирующих вопросов (детали схемы данных, интеграций, дорожной карты ИИ-консультанта) и 2 технических риска (проверка у архитекторов Set Retail) перенесены в раздел «Questions For Product Owner» отчета `04-generation-report.md`.
+Эти пункты перечислены в `ai-artifacts/09-github-spec-kit-handoff.md` как решения инженеров. Продуктовых блокеров для карты функций и handoff нет.

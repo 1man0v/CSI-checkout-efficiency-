@@ -8,7 +8,7 @@
 - `entities-and-data-dictionary.md` — ключевые сущности, состояния SCO, словарь собираемых данных;
 - `business-rules-and-formulas.md` — бизнес-правила, формулы расчета метрик и KPI;
 - `task-management.md` — постановка задач и контроль их выполнения (MVP1);
-- `ai-advisor-concept.md` — концепция надстройки операционного ИИ-консультанта (Set Retail Pro), не входит в MVP1/MVP2.
+- `ai-advisor-concept.md` — концепция надстройки операционного ИИ-консультанта (Set Retail Pro), релиз MVP3, после MVP2.
 
 ## Основные функциональные блоки системы
 
