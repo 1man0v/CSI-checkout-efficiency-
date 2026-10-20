@@ -1,4 +1,4 @@
-const { classifyOutlier, isRegisterAvailable, isRegisterStale, staleDays } = require("../rules");
+const { classifyOutlier, isRegisterAvailable, isRegisterStale, staleDays, telemetryAsOf } = require("../rules");
 const { getEffectiveSettings } = require("./settings");
 const { topCauseByStore } = require("./analytics");
 
@@ -24,8 +24,10 @@ function listStores(db, query) {
 function getStore(db, id) {
   const store = db.prepare("SELECT * FROM stores WHERE id = ?").get(id);
   if (!store) return null;
+  const seen = db.prepare("SELECT last_seen_at FROM registers").all().map(r => r.last_seen_at);
+  const asOf = telemetryAsOf(seen);
   const registers = db.prepare("SELECT * FROM registers WHERE store_id = ? ORDER BY id").all(id)
-    .map(r => ({ ...r, is_available: isRegisterAvailable(r), is_stale: isRegisterStale(r), stale_days: isRegisterStale(r) ? staleDays(r) : null }));
+    .map(r => ({ ...r, is_available: isRegisterAvailable(r), is_stale: isRegisterStale(r, asOf), stale_days: isRegisterStale(r, asOf) ? staleDays(r, asOf) : null }));
   const settings = getEffectiveSettings(db, store.region);
   return { ...store, ...classifyOutlier(store, settings), registers, settings };
 }

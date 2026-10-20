@@ -86,11 +86,6 @@ function kpiCard(opts) {
     ${opts.sub ? `<div class="kpi-delta">${opts.sub}</div>` : ""}
   </div>`;
 }
-// Сумма экономии форматируется с символом валюты из ключей локализации (currency.<код>),
-// а не хардкодится — валюта задается в настройках (SCR-08).
-function formatCurrency(amount, code) {
-  return `${Math.round(amount).toLocaleString("ru-RU")} ${t("currency." + code)}`;
-}
 // Большая плашка ОД: одна широкая карточка с несколькими под-метриками внутри (количество
 // магазинов/POS/КСО/аутсайдеров) — вместо нескольких мелких плашек, каждая со своей динамикой
 // за выбранный период vs предыдущий период той же длины.
@@ -102,31 +97,6 @@ function bigInfoTile(items) {
       ${it.sub ? `<div class="kpi-delta">${it.sub}</div>` : ""}
     </div>`).join("")}
   </div></div>`;
-}
-// Плашка "рейтинг" (региона у РД, магазина у ДМ) — три вертикальные строки: лидер, "вы" (текущее
-// место), "догоняющий" (следующий за вами по рейтингу). rankInfo: {leader, mine, chaser}, каждый —
-// {name, rank, availability_pct, utilization_pct, sco_share_pct} или null (chaser отсутствует, если
-// вы уже последние). Кликабельна — открывает полный рейтинг (openRankingTable).
-function rankingTileHtml(title, rankInfo, onClick) {
-  if (!rankInfo || !rankInfo.mine) return "";
-  const { leader, mine, chaser } = rankInfo;
-  const row = (badgeKey, entry, isMine) => entry ? `<div class="rank-row ${isMine ? "rank-row-mine" : ""}">
-    <span class="rank-badge">${t(badgeKey)}</span><span class="rank-name">${escapeHtml(entry.name)}</span><span class="rank-place mono">#${entry.rank}</span>
-    <div class="rank-metrics">${t("th.availability")} ${entry.availability_pct}% · ${t("kpi.utilization_generic")} ${entry.utilization_pct}% · ${t("th.sco_share")} ${entry.sco_share_pct}%</div>
-  </div>` : "";
-  return `<div class="card kpi-card rank-tile ${onClick ? "clickable" : ""}" ${onClick ? `onclick="${onClick}"` : ""}>
-    <div class="kpi-label">${title}</div>
-    ${row("rank.leader", leader, leader && mine && leader.name === mine.name)}
-    ${leader && mine && leader.name === mine.name ? "" : row("rank.current", mine, true)}
-    ${row("rank.chaser", chaser, false)}
-  </div>`;
-}
-function openRankingTable(rows, title, nameLabel) {
-  openOverlay(`<div class="drawer drawer-wide">
-    <div class="drawer-header"><h2>${title}</h2><button class="modal-close" onclick="closeOverlay()">×</button></div>
-    <div class="card"><table><thead><tr><th class="mono">#</th><th>${nameLabel}</th><th class="mono">${t("th.availability")}</th><th class="mono">${t("kpi.utilization_generic")}</th><th class="mono">${t("th.sco_share")}</th></tr></thead>
-    <tbody>${rows.map(r => `<tr><td class="mono">${r.rank}</td><td>${escapeHtml(r.name)}</td><td class="mono">${r.availability_pct}%</td><td class="mono">${r.utilization_pct}%</td><td class="mono">${r.sco_share_pct}%</td></tr>`).join("")}</tbody></table></div>
-  </div>`, "drawer");
 }
 const REGISTER_BADGES = {
   available: "ok", occupied: "ok", blocked_by_staff: "warn", no_paper: "bad", bank_error: "bad",
@@ -871,16 +841,15 @@ function renderNetworkDashboard() {
   withState("SCR-01", el("scr01-body"),
     async () => {
       const scopeParams = scopeParamsForRole();
-      const [storesList, causes, regions, pos, counts, tasksList, settings] = await Promise.all([
+      const [storesList, causes, regions, pos, counts, tasksList] = await Promise.all([
         api.getStores(scopeParams), api.getTechnicalCauses(), api.getRegionsSummary({ days: periodState.days }),
-        api.getPosSummary(scopeParams), fetchNetworkCountsSummary(scopeParams), api.getTasks(), api.getSettings(regionForRole())
+        api.getPosSummary(scopeParams), fetchNetworkCountsSummary(scopeParams), api.getTasks()
       ]);
       const details = await Promise.all(storesList.map(s => api.getStore(s.id)));
-      return { storesList, causes, allRegions: regions, pos, counts, tasksList, details, settings };
+      return { storesList, causes, allRegions: regions, pos, counts, tasksList, details };
     },
-    ({ storesList, causes, allRegions, pos, counts, tasksList, details, settings }) => {
-      // allRegions — сеть целиком (для рейтинга региона РД среди всех регионов); regions —
-      // отфильтровано для таблицы "Регионы — состояние и тренд" (РД видит только свой регион).
+    ({ storesList, causes, allRegions, pos, counts, tasksList, details }) => {
+      // regions — таблица "Регионы — состояние и тренд" (РД видит только свой регион).
       const regions = currentRole === "rd" ? allRegions.filter(r => r.region === RD_REGION) : allRegions;
       const scopeParams = scopeParamsForRole();
       const scopeParamsAttr = JSON.stringify(scopeParams).replace(/"/g, "&quot;");
@@ -917,40 +886,30 @@ function renderNetworkDashboard() {
       const now = Date.now();
       const attentionTasks = tasksList.filter(tk => scopedStoreIds.has(tk.store_id) && tk.status !== "done" && (tk.escalated || new Date(tk.due_at).getTime() < now));
 
-      // Потенциальная экономия = среднее время чека POS (часы) × потенциал чеков перевода на КСО
-      // (шт, недельный) × ставка часа кассира — по каждому магазину отдельно (своя средняя скорость
-      // POS), сумма — итог по scope. "Потенциал чеков в штуках" — потенциал_sco_pct (п.п.),
-      // примененный к недельной нагрузке POS магазина (см. requirements/02-system/business-rules-and-formulas.md,
-      // "10. Потенциальная экономия"). Валюта/ставка — настраиваемые параметры (SCR-08).
-      const cashierHourlyRate = settings.network.cashier_hourly_rate;
-      const currencyCode = settings.network.currency;
-      const savingsByStore = storesList.map(s => {
-        const detail = details.find(d => d.id === s.id);
-        const storePosRegs = detail ? detail.registers.filter(r => r.type === "POS" && r.avg_seconds != null) : [];
-        const storePosSpeed = storePosRegs.length ? avg(storePosRegs.map(r => r.avg_seconds)) : null;
-        const storePotentialChecks = s.pos_load_week * (s.potential_sco_pct / 100);
-        const value = storePosSpeed != null ? (storePosSpeed / 3600) * storePotentialChecks * cashierHourlyRate : 0;
-        return { ts: s.number, value: Math.round(value) };
-      });
-      const potentialSavings = savingsByStore.reduce((sum, r) => sum + r.value, 0);
-      const savingsPointsAttr = JSON.stringify(savingsByStore).replace(/"/g, "&quot;");
-
-      // Рейтинг региона среди всех регионов сети (только роль РД) — композитный балл: равновзвешенное
-      // среднее доступности/утилизации/доли чеков КСО (business-rules-and-formulas.md, "14. Рейтинг
-      // региона/магазина" — балл и веса не подтверждены Product Manager). "Догоняющий" — регион на
-      // одну позицию ниже в рейтинге (следующий за вами, ближайший претендент на ваше место).
-      let regionRanking = null, regionRankedAttr = null;
-      if (currentRole === "rd") {
-        const ranked = [...allRegions].map(r => ({
-          name: r.region, availability_pct: r.availability_pct, utilization_pct: r.utilization_pct, sco_share_pct: r.sco_share_pct,
-          score: (r.availability_pct + r.utilization_pct + r.sco_share_pct) / 3
-        })).sort((a, b) => b.score - a.score).map((r, i) => ({ ...r, rank: i + 1 }));
-        const myIndex = ranked.findIndex(r => r.name === RD_REGION);
-        regionRanking = { leader: ranked[0], mine: ranked[myIndex], chaser: myIndex + 1 < ranked.length ? ranked[myIndex + 1] : null };
-        regionRankedAttr = JSON.stringify(ranked).replace(/"/g, "&quot;");
-      }
-
-      return `
+      const hero = `
+        <div class="section">
+          <div class="grid grid-kpi grid-kpi-hero">
+            ${kpiCard({ label: t("kpi.availability"), value: availability.toFixed(0) + "%", sub: t("kpi.norm_prefix") + "90%",
+              cls: kpiClassFor(availability, 90, "higher-better"), onClick: `openMetricChart(${scopeParamsAttr}, 'availability', '${t("kpi.availability")}')` })}
+            ${kpiCard({ label: t("kpi.sco_share"), value: scoShare.toFixed(0) + "%", sub: t("kpi.norm_prefix") + "30%",
+              cls: kpiClassFor(scoShare, 30, "higher-better"), onClick: `openMetricChart(${scopeParamsAttr}, 'sco_share', '${t("kpi.sco_share")}')` })}
+          </div>
+        </div>`;
+      const regionsBlock = `
+        <div class="section"><div class="section-header"><h2>${t("section.regions_trend")}${periodLabel().toLowerCase()}</h2></div>
+          <div class="card"><table><thead><tr><th>${t("th.region")}</th><th>${t("th.stores_count")}</th><th>${t("th.regional_director")}</th><th class="mono">${t("th.availability")}</th><th class="mono">${t("th.trend")}</th><th class="mono">${t("th.sco_share")}</th><th class="mono">${t("th.trend")}</th></tr></thead>
+          <tbody>${regions.map(r => `<tr class="clickable-row region-row" onclick="filterState.networkRegion='${r.region}'; renderNetworkDashboard()">
+            <td>${r.region}</td><td class="mono">${r.storeCount}</td><td>${r.regionalDirector}</td>
+            <td class="mono">${r.availability_pct}%</td><td>${trendArrow(r.availability_trend, t("unit.pp"))}</td>
+            <td class="mono">${r.sco_share_pct}%</td><td>${trendArrow(r.sco_share_trend, t("unit.pp"))}</td>
+          </tr>`).join("")}</tbody></table></div>
+        </div>`;
+      const problems = `
+        <div class="section"><div class="section-header"><h2>${t("section.attention_problems")}</h2><a onclick="nav('outliers')">${t("section.all_outliers")}</a></div>
+          ${renderStoreQuickFilters("SCR-01")}
+          <div class="card">${renderSortableStoreTable(applyQuickFilter(attention.filter(s => !filterState.networkRegion || s.region === filterState.networkRegion), "SCR-01"), "SCR-01")}</div>
+        </div>`;
+      const generalInfo = `
         <div class="section"><h3>${t("section.general_info")}</h3>
         ${bigInfoTile([
           { label: t("kpi.store_count"), value: Math.round(counts.store_count), trend: counts.store_count_trend, trendDecimals: 0,
@@ -962,40 +921,8 @@ function renderNetworkDashboard() {
           { label: t("kpi.outlier_count"), value: `${Math.round(counts.outlier_count)} (${counts.outlier_pct}%)`, trend: counts.outlier_count_trend, trendDirection: "lower-better", trendDecimals: 0,
             onClick: `openMetricChart(${scopeParamsAttr}, 'outlier_count', '${t("kpi.outlier_count")}')` }
         ])}
-        </div>
-
-        <!-- Этап 1 методологии (SCO/6133710853): два top-level индикатора с цветовой индикацией —
-             все остальное (утилизация, скорость обслуживания, потенциал, экономия, рейтинг) убрано
-             с первого экрана в "Подробнее" ниже (см. правки 2026-09-13 по комментариям ПМ и разбору
-             сценария РД — "перегрузили дашборды", "производительность касс путает"). -->
-        <div class="section">
-          <div class="grid grid-kpi grid-kpi-hero">
-            ${kpiCard({ label: t("kpi.availability"), value: availability.toFixed(0) + "%", sub: t("kpi.norm_prefix") + "90%",
-              cls: kpiClassFor(availability, 90, "higher-better"), onClick: `openMetricChart(${scopeParamsAttr}, 'availability', '${t("kpi.availability")}')` })}
-            ${kpiCard({ label: t("kpi.sco_share"), value: scoShare.toFixed(0) + "%", sub: t("kpi.norm_prefix") + "30%",
-              cls: kpiClassFor(scoShare, 30, "higher-better"), onClick: `openMetricChart(${scopeParamsAttr}, 'sco_share', '${t("kpi.sco_share")}')` })}
-          </div>
-        </div>
-
-        <!-- Этап 2: таблица аутсайдеров сразу под hero-плашками (была в самом низу экрана). -->
-        <div class="section"><div class="section-header"><h2>${t("section.attention_problems")}</h2><a onclick="nav('outliers')">${t("section.all_outliers")}</a></div>
-          ${renderStoreQuickFilters("SCR-01")}
-          <div class="card">${renderSortableStoreTable(applyQuickFilter(attention.filter(s => !filterState.networkRegion || s.region === filterState.networkRegion), "SCR-01"), "SCR-01")}</div>
-        </div>
-
-        ${renderAttentionTasksByRole(currentRole, attentionTasks, storesList, allRegions)}
-
-        <div class="section-header more-details-header"><h2>${t("section.more_details")}</h2></div>
-
-        <div class="section"><div class="section-header"><h2>${t("section.regions_trend")}${periodLabel().toLowerCase()}</h2></div>
-          <div class="card"><table><thead><tr><th>${t("th.region")}</th><th>${t("th.stores_count")}</th><th>${t("th.regional_director")}</th><th class="mono">${t("th.availability")}</th><th class="mono">${t("th.trend")}</th><th class="mono">${t("th.sco_share")}</th><th class="mono">${t("th.trend")}</th></tr></thead>
-          <tbody>${regions.map(r => `<tr class="clickable-row region-row" onclick="filterState.networkRegion='${r.region}'; renderNetworkDashboard()">
-            <td>${r.region}</td><td class="mono">${r.storeCount}</td><td>${r.regionalDirector}</td>
-            <td class="mono">${r.availability_pct}%</td><td>${trendArrow(r.availability_trend, t("unit.pp"))}</td>
-            <td class="mono">${r.sco_share_pct}%</td><td>${trendArrow(r.sco_share_trend, t("unit.pp"))}</td>
-          </tr>`).join("")}</tbody></table></div>
-        </div>
-
+        </div>`;
+      const scoPosTiles = `
         <div class="section"><h4 class="kpi-group-label">${t("group.sco")}</h4>
           <div class="grid grid-kpi">
             ${kpiCard({ label: t("kpi.utilization_sco"), value: scoUtil.toFixed(0) + "%", cls: "kpi-info",
@@ -1013,21 +940,24 @@ function renderNetworkDashboard() {
             ${kpiCard({ label: t("kpi.service_speed_pos"), value: (posSpeedRegs.length ? Math.round(posSpeed) : "—") + " " + t("unit.sec"), cls: "kpi-info",
               onClick: `openCategoryBarChart(${posSpeedPointsAttr}, '${t("kpi.service_speed_pos")}', ' ${t("unit.sec")}')` })}
           </div>
-        </div>
-        <div class="section"><h4 class="kpi-group-label">${t("group.other")}</h4>
-          <div class="grid grid-kpi grid-kpi-compact">
-            ${kpiCard({ label: t("kpi.potential_savings"), value: formatCurrency(potentialSavings, currencyCode), sub: t("kpi.potential_savings_sub"), cls: "kpi-good",
-              onClick: `openCategoryBarChart(${savingsPointsAttr}, '${t("kpi.potential_savings")}', ' ${t("currency." + currencyCode)}')` })}
-            ${regionRanking ? rankingTileHtml(t("kpi.region_ranking"), regionRanking,
-              `openRankingTable(${regionRankedAttr}, '${t("section.ranking_table_regions")}', '${t("th.region")}')`) : ""}
-          </div>
-        </div>
-
-        <div class="section"><h3>${t("section.info_sco")} <span class="section-total mono">${t("section.total_prefix")} ${scoTotal} ${t("unit.hours")}</span></h3>
+        </div>`;
+      const downtime = `
+        <div class="section"><h3>${t("section.info_sco")} <span class="section-total mono">${t("section.total_prefix")} ${scoTotal}${t("unit.hours")}</span></h3>
           <div class="card causes-compact">${scoCauses.map(c => barRow(causeDisplayName(c.cause) + (c.note ? " ⓘ" : ""), c.hours, scoTotal)).join("")}</div></div>
-        <div class="section"><h3>${t("section.info_pos")} <span class="section-total mono">${t("section.total_prefix")} ${posTotal} ${t("unit.hours")}</span></h3>
+        <div class="section"><h3>${t("section.info_pos")} <span class="section-total mono">${t("section.total_prefix")} ${posTotal}${t("unit.hours")}</span></h3>
           <div class="card causes-compact">${pos.causes.length ? pos.causes.map(c => barRow(causeDisplayName(c.cause), c.hours, posTotal)).join("") : `<p style="color:var(--color-text-muted)">${t("section.no_pos_causes")}</p>`}</div>
         </div>`;
+      const statsTiles = generalInfo + scoPosTiles;
+      const tasksBlock = renderAttentionTasksByRole(currentRole, attentionTasks, storesList, allRegions);
+      const moreHeader = `<div class="section-header more-details-header"><h2>${t("section.more_details")}</h2></div>`;
+
+      // ОД не меняем: карточки, регионы, проблемные магазины, «Подробнее» со статистикой и задачи в конце.
+      if (currentRole === "od") {
+        return `${hero}${regionsBlock}${problems}${moreHeader}${statsTiles}${downtime}${tasksBlock}`;
+      }
+      // РД: доступность и доля чеков, затем плашки КСО и POS, проблемные магазины.
+      // В «Подробнее» сначала общая статистика, задачи — в самом конце.
+      return `${hero}${scoPosTiles}${problems}${moreHeader}${generalInfo}${regionsBlock}${downtime}${tasksBlock}`;
     });
 }
 function exportNetworkCsv() {
@@ -1225,13 +1155,12 @@ function renderStoreCard(storeId) {
     async () => {
       const store = await api.getStore(storeId);
       const scopeParams = { scope: "store", storeId: store.id };
-      const [tasks, counts, siblingStores, hourlyLoad] = await Promise.all([
-        api.getTasks(storeId), fetchNetworkCountsSummary(scopeParams),
-        api.getStores({ scope: "region", region: store.region }), fetchStoreHourlyLoad(store.id)
+      const [tasks, counts, hourlyLoad] = await Promise.all([
+        api.getTasks(storeId), fetchNetworkCountsSummary(scopeParams), fetchStoreHourlyLoad(store.id)
       ]);
-      return { store, tasks, counts, siblingStores, hourlyLoad };
+      return { store, tasks, counts, hourlyLoad };
     },
-    ({ store, tasks, counts, siblingStores, hourlyLoad }) => {
+    ({ store, tasks, counts, hourlyLoad }) => {
       if (currentRole !== "dm") renderTopbar([{ label: scopeCrumb().label, route: "network" }, { label: `${store.number} «${store.name}»` }]);
       else renderTopbar([{ label: `${store.number} «${store.name}»` }]);
       el("scr03-header").innerHTML = `<div class="section-header"><h1>${store.number} «${store.name}» <span style="font-weight:400;color:var(--color-text-muted);font-size:14px">— ${store.region}, ${store.format} · ${t("th.director").toLowerCase()}: ${store.director_name}</span></h1></div>`;
@@ -1255,18 +1184,6 @@ function renderStoreCard(storeId) {
       // Потенциал перетока на SCO — та же формула, что на дашборде сети/экране "Потенциал SCO".
       const potential = store.sco_share_pct + store.potential_sco_pct;
       const potentialRefAttr = JSON.stringify({ value: potential, label: `${t("kpi.sco_transfer_potential")} = ${potential.toFixed(0)}%` }).replace(/"/g, "&quot;");
-
-      // Рейтинг магазина среди магазинов ТОГО ЖЕ региона (не сети целиком) — композитный балл:
-      // равновзвешенное среднее доступности/утилизации/доли чеков КСО, business-rules-and-formulas.md
-      // "14. Рейтинг региона/магазина" (не подтверждено Product Manager).
-      const ranked = siblingStores.map(st => ({
-        id: st.id, name: `${st.number} «${st.name}»`, availability_pct: st.availability_pct,
-        utilization_pct: st.utilization_pct, sco_share_pct: st.sco_share_pct,
-        score: (st.availability_pct + st.utilization_pct + st.sco_share_pct) / 3
-      })).sort((a, b) => b.score - a.score).map((r, i) => ({ ...r, rank: i + 1 }));
-      const myIndex = ranked.findIndex(r => r.id === store.id);
-      const storeRanking = { leader: ranked[0], mine: ranked[myIndex], chaser: myIndex + 1 < ranked.length ? ranked[myIndex + 1] : null };
-      const storeRankedAttr = JSON.stringify(ranked).replace(/"/g, "&quot;");
 
       return `
         <!-- Этап 1: hero-плашки + бейдж категории аутсайдера (раньше не показывался явно на карточке). -->
@@ -1318,13 +1235,6 @@ function renderStoreCard(storeId) {
               onClick: `openMetricChart(${scopeParamsAttr}, 'pos_checks', '${t("kpi.pos_load")}')` })}
           </div>
         </div>
-        <div class="section"><h4 class="kpi-group-label">${t("group.other")}</h4>
-          <div class="grid grid-kpi grid-kpi-compact">
-            ${rankingTileHtml(t("kpi.store_ranking"), storeRanking,
-              `openRankingTable(${storeRankedAttr}, '${t("section.ranking_table_stores")}', '${t("th.store")}')`)}
-          </div>
-        </div>
-
         <div class="section"><div class="section-header"><h2>${t("kpi.hourly_load")}</h2></div>
           <div class="card"><p style="color:var(--color-text-muted);font-size:12px;margin-top:0">${t("kpi.hourly_load_sub")}</p>
             ${renderHourlyLoadChart(hourlyLoad)}</div>

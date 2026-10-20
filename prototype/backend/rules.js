@@ -43,6 +43,13 @@ function isRegisterAvailable(register) {
 // хотя формально остается в счете "количество POS/КСО" (кассовый сервер не удаляет ее из реестра).
 const STALE_THRESHOLD_DAYS = 30;
 function daysSince(isoDate, now = Date.now()) { return (now - new Date(isoDate).getTime()) / 86400000; }
+// «Сейчас» для прототипа — момент последней телеметрии в наборе, а не календарный день открытия
+// файла. Снимок заморожен (last_seen около 2026-09-13); от Date.now() через месяц все кассы
+// становятся «офлайн», хотя в данных так помечена только касса без связи 38 дней.
+function telemetryAsOf(isoDates) {
+  const times = (isoDates || []).map(iso => new Date(iso).getTime()).filter(t => !Number.isNaN(t));
+  return times.length ? Math.max(...times) : Date.now();
+}
 function isRegisterStale(register, now = Date.now()) {
   return daysSince(register.last_seen_at, now) > STALE_THRESHOLD_DAYS;
 }
@@ -73,4 +80,4 @@ function effectiveSettings(network, regional) {
   };
 }
 
-module.exports = { kpiStatusHigherBetter, classifyOutlier, isRegisterAvailable, isRegisterStale, staleDays, nextEscalation, effectiveSettings, STALE_THRESHOLD_DAYS };
+module.exports = { kpiStatusHigherBetter, classifyOutlier, isRegisterAvailable, isRegisterStale, staleDays, telemetryAsOf, nextEscalation, effectiveSettings, STALE_THRESHOLD_DAYS };

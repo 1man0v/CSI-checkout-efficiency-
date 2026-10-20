@@ -6,7 +6,7 @@
 // соответствующую функцию здесь нужно обновить так же (build-offline.js это не проверяет).
 (function () {
   const DATA = window.OFFLINE_DATA;
-  const { classifyOutlier, isRegisterAvailable, isRegisterStale, staleDays, nextEscalation, effectiveSettings } = window.OfflineRules;
+  const { classifyOutlier, isRegisterAvailable, isRegisterStale, staleDays, telemetryAsOf, nextEscalation, effectiveSettings } = window.OfflineRules;
 
   function avg(arr) { return arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0; }
   function sum(arr) { return arr.reduce((a, b) => a + b, 0); }
@@ -32,8 +32,9 @@
   function getStore(id) {
     const store = DATA.stores.find(s => s.id === id);
     if (!store) return null;
+    const asOf = telemetryAsOf(DATA.registers.map(r => r.last_seen_at));
     const registers = DATA.registers.filter(r => r.store_id === id).sort(byIdAsc)
-      .map(r => ({ ...r, is_available: isRegisterAvailable(r), is_stale: isRegisterStale(r), stale_days: isRegisterStale(r) ? staleDays(r) : null }));
+      .map(r => ({ ...r, is_available: isRegisterAvailable(r), is_stale: isRegisterStale(r, asOf), stale_days: isRegisterStale(r, asOf) ? staleDays(r, asOf) : null }));
     const settings = getEffectiveSettingsData(store.region);
     return { ...store, ...classifyOutlier(store, settings), registers, settings };
   }
